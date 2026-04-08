@@ -459,15 +459,69 @@
   background: #ffffff;
 }
 
+headerbar.dialog-headerbar {
+  min-height: 48px;
+  padding: 0 12px;
+  background: linear-gradient(180deg, #143b72 0%, #0f2d5b 100%);
+  color: #ffffff;
+  border: none;
+  box-shadow: none;
+}
+
+headerbar.dialog-headerbar:backdrop {
+  background: linear-gradient(180deg, #143b72 0%, #0f2d5b 100%);
+  color: #ffffff;
+}
+
+headerbar.dialog-headerbar button {
+  min-width: 34px;
+  min-height: 34px;
+  border-radius: 17px;
+  background: rgba(255, 255, 255, 0.08);
+  color: #ffffff;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  box-shadow: none;
+}
+
+headerbar.dialog-headerbar button:hover {
+  background: rgba(255, 255, 255, 0.14);
+  border-color: rgba(255, 255, 255, 0.18);
+}
+
+headerbar.dialog-headerbar button:active {
+  background: rgba(255, 255, 255, 0.22);
+}
+
+.dialog-header-title {
+  color: #ffffff;
+  font-size: 18px;
+  font-weight: 700;
+}
+
+.connect-dialog.theme-dark,
+.connect-dialog.theme-dark dialog,
+.dialog-shell.theme-dark {
+  background: #162233;
+  color: #edf3ff;
+}
+
 .dialog-title {
   color: #223047;
   font-size: 28px;
   font-weight: 700;
 }
 
+.dialog-shell.theme-dark .dialog-title {
+  color: #edf3ff;
+}
+
 .dialog-body {
   color: #66768f;
   font-size: 14px;
+}
+
+.dialog-shell.theme-dark .dialog-body {
+  color: #9eb0c8;
 }
 
 .dialog-field-label {
@@ -476,10 +530,18 @@
   font-weight: 600;
 }
 
+.dialog-shell.theme-dark .dialog-field-label {
+  color: #edf3ff;
+}
+
 .dialog-section-title {
   color: #223047;
   font-size: 18px;
   font-weight: 700;
+}
+
+.dialog-shell.theme-dark .dialog-section-title {
+  color: #edf3ff;
 }
 
 .dialog-entry {
@@ -490,6 +552,71 @@
   color: #223047;
 }
 
+combobox.dialog-entry {
+  padding: 0;
+  background: transparent;
+  border: none;
+}
+
+combobox.dialog-entry > box.linked,
+combobox.dialog-entry > box.linked > box {
+  background: transparent;
+}
+
+combobox.dialog-entry > box.linked > button.combo {
+  min-height: 44px;
+  padding: 0 12px;
+  border-radius: 12px;
+  background: #ffffff;
+  border: 1px solid #cfd8e6;
+  color: #223047;
+  box-shadow: none;
+}
+
+combobox.dialog-entry > box.linked > button.combo:hover {
+  background: #f7faff;
+  border-color: #bcc9dc;
+}
+
+combobox.dialog-entry > box.linked > button.combo > box,
+combobox.dialog-entry > box.linked > button.combo label,
+combobox.dialog-entry > box.linked > button.combo image,
+combobox.dialog-entry > box.linked > button.combo arrow {
+  color: #223047;
+}
+
+.dialog-shell.theme-dark .dialog-entry,
+.dialog-shell.theme-dark combobox.dialog-entry,
+.dialog-shell.theme-dark .dialog-entry entry,
+.dialog-shell.theme-dark .dialog-entry text,
+.dialog-shell.theme-dark .dialog-entry button,
+.dialog-shell.theme-dark .dialog-entry box,
+.dialog-shell.theme-dark .dialog-entry label,
+.dialog-shell.theme-dark .dialog-entry image,
+.dialog-shell.theme-dark .dialog-entry arrow {
+  background: #1b2940;
+  border-color: #34506f;
+  color: #edf3ff;
+}
+
+.dialog-shell.theme-dark combobox.dialog-entry > box.linked > button.combo {
+  background: #1b2940;
+  border-color: #34506f;
+  color: #edf3ff;
+}
+
+.dialog-shell.theme-dark combobox.dialog-entry > box.linked > button.combo:hover {
+  background: #22334d;
+  border-color: #426284;
+}
+
+.dialog-shell.theme-dark combobox.dialog-entry > box.linked > button.combo > box,
+.dialog-shell.theme-dark combobox.dialog-entry > box.linked > button.combo label,
+.dialog-shell.theme-dark combobox.dialog-entry > box.linked > button.combo image,
+.dialog-shell.theme-dark combobox.dialog-entry > box.linked > button.combo arrow {
+  color: #edf3ff;
+}
+
 .dialog-entry-plain {
   border-radius: 0;
   border-width: 0 0 1px 0;
@@ -497,6 +624,24 @@
   background: transparent;
   padding-left: 8px;
   padding-right: 8px;
+}
+
+.dialog-entry-plain entry,
+.dialog-entry-plain text,
+.dialog-entry-plain image {
+  background: transparent;
+  box-shadow: none;
+}
+
+.dialog-shell.theme-dark .dialog-entry-plain {
+  border-color: #426284;
+  background: transparent;
+}
+
+.dialog-shell.theme-dark .dialog-entry-plain entry,
+.dialog-shell.theme-dark .dialog-entry-plain text,
+.dialog-shell.theme-dark .dialog-entry-plain image {
+  background: transparent;
 }
 
 .dialog-error {
@@ -509,15 +654,27 @@
   color: #223047;
 }
 
+.dialog-shell.theme-dark .dialog-check {
+  color: #edf3ff;
+}
+
 .dialog-value {
   color: #223047;
   font-size: 18px;
   font-weight: 500;
 }
 
+.dialog-shell.theme-dark .dialog-value {
+  color: #edf3ff;
+}
+
 .dialog-note {
   color: #7a879b;
   font-size: 13px;
+}
+
+.dialog-shell.theme-dark .dialog-note {
+  color: #9eb0c8;
 }
 
 .dialog-warning {
@@ -546,6 +703,14 @@
   box-shadow: inset 0 -3px #f58220;
 }
 
+.dialog-shell.theme-dark .import-switcher button {
+  color: #9eb0c8;
+}
+
+.dialog-shell.theme-dark .import-switcher button:checked {
+  color: #edf3ff;
+}
+
 .file-drop-card {
   padding: 28px 20px;
   border-radius: 18px;
@@ -553,8 +718,17 @@
   background: #f7faff;
 }
 
+.dialog-shell.theme-dark .file-drop-card {
+  border-color: #34506f;
+  background: #1b2940;
+}
+
 .drop-card-icon {
   color: #7b98c8;
+}
+
+.dialog-shell.theme-dark .drop-card-icon {
+  color: #8fb2e2;
 }
 
 .drop-card-title {
@@ -563,9 +737,17 @@
   font-weight: 300;
 }
 
+.dialog-shell.theme-dark .drop-card-title {
+  color: #edf3ff;
+}
+
 .drop-card-subtitle {
   color: #7a879b;
   font-size: 14px;
+}
+
+.dialog-shell.theme-dark .drop-card-subtitle {
+  color: #9eb0c8;
 }
 
 .import-review-grid {
@@ -611,6 +793,19 @@
   min-width: 118px;
 }
 
+.dialog-shell.theme-dark .secondary-cta,
+.dialog-shell.theme-dark .icon-chip {
+  background: #1b2940;
+  color: #edf3ff;
+  border-color: #34506f;
+}
+
+.dialog-shell.theme-dark .secondary-cta:hover,
+.dialog-shell.theme-dark .icon-chip:hover {
+  background: #22334d;
+  border-color: #426284;
+}
+
 .dialog-action-button {
   min-width: 48px;
   min-height: 48px;
@@ -643,6 +838,10 @@
   border-bottom: 1px solid #e5ebf3;
 }
 
+.dialog-shell.theme-dark .dialog-value {
+  border-color: #29415f;
+}
+
 .drop-card-title,
 .drop-card-subtitle {
   max-width: 280px;
@@ -672,6 +871,14 @@
 .setting-description {
   color: #6c7b93;
   font-size: 13px;
+}
+
+.dialog-shell.theme-dark .setting-title {
+  color: #edf3ff;
+}
+
+.dialog-shell.theme-dark .setting-description {
+  color: #9eb0c8;
 }
 
 .setting-control {
@@ -777,15 +984,18 @@ switch.setting-switch slider {
   box-shadow: 0 1px 4px rgba(18, 39, 76, 0.18);
 }
 
+.dialog-shell.theme-dark switch.setting-switch,
 .connect-shell.theme-dark switch.setting-switch {
   background: #2a3c55;
   border-color: #36516f;
 }
 
+.dialog-shell.theme-dark switch.setting-switch:hover,
 .connect-shell.theme-dark switch.setting-switch:hover {
   background: #324762;
 }
 
+.dialog-shell.theme-dark switch.setting-switch:checked,
 .connect-shell.theme-dark switch.setting-switch:checked {
   background: #4aa55a;
   border-color: #3f8d4d;

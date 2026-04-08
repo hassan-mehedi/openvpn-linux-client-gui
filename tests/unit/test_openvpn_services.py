@@ -207,6 +207,43 @@ def test_configuration_service_applies_supported_runtime_settings() -> None:
     ]
 
 
+def test_configuration_service_ignores_missing_override_when_protocol_is_auto() -> None:
+    transport = FakeTransport()
+    service = ConfigurationService(DBusClient(transport))
+    profile = service.list_profiles()[0]
+
+    original_call = transport.call
+
+    def call_with_missing_override(**kwargs):
+        if kwargs["method"] == "UnsetOverride" and kwargs["params"] == ("proto-override",):
+            raise FakeDBusException(
+                "Override 'proto-override' has not been set",
+                dbus_name="org.gtk.GDBus.UnmappedGError.Quark._net_2eopenvpn_2egdbuspp.Code36",
+            )
+        return original_call(**kwargs)
+
+    transport.call = call_with_missing_override
+
+    service.apply_connection_settings(
+        profile.id,
+        AppSettings(
+            protocol=ConnectionProtocol.AUTO,
+            google_dns_fallback=False,
+            dco=False,
+        ),
+    )
+
+    calls = [
+        (call["method"], call["params"])
+        for call in transport.calls
+        if call["method"] in {"UnsetOverride", "SetOverride", "Set"}
+    ]
+    assert calls[-2:] == [
+        ("SetOverride", ("dns-fallback-google", False)),
+        ("Set", ("net.openvpn.v3.configuration", "dco", False)),
+    ]
+
+
 def test_session_service_maps_best_effort_telemetry_properties() -> None:
     transport = FakeTransport()
     transport.session_props["/net/openvpn/v3/sessions/session1"].update(

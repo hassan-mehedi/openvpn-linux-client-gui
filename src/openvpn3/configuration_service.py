@@ -141,14 +141,19 @@ class ConfigurationService:
 
     def unset_override(self, profile_id: str, name: str) -> None:
         profile_path = self.resolve_object_path(profile_id)
-        self._client.call_method(
-            service=CONFIGURATION_SERVICE_NAME,
-            object_path=profile_path,
-            interface=CONFIGURATION_INTERFACE,
-            method="UnsetOverride",
-            signature="s",
-            params=(name,),
-        )
+        try:
+            self._client.call_method(
+                service=CONFIGURATION_SERVICE_NAME,
+                object_path=profile_path,
+                interface=CONFIGURATION_INTERFACE,
+                method="UnsetOverride",
+                signature="s",
+                params=(name,),
+            )
+        except Exception as exc:
+            if _is_missing_override_error(exc, name):
+                return
+            raise
 
     def set_property(self, profile_id: str, name: str, value: Any) -> None:
         profile_path = self.resolve_object_path(profile_id)
@@ -208,3 +213,11 @@ def _parse_timestamp(value: Any) -> datetime | None:
     if isinstance(value, (int, float)):
         return datetime.fromtimestamp(value, tz=timezone.utc)
     return datetime.fromisoformat(str(value))
+
+
+def _is_missing_override_error(exc: Exception, name: str) -> bool:
+    message = str(exc)
+    if f"Override '{name}' has not been set" in message:
+        return True
+    dbus_name = getattr(exc, "get_dbus_name", lambda: "")()
+    return "net.openvpn.gdbuspp" in str(dbus_name) and "has not been set" in message

@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections.abc import Callable
 import re
 
+from app.dialogs.common import configure_dialog_chrome
 from core.models import Profile, ProxyDefinition, SavedCredentialState
 
 
@@ -43,7 +44,6 @@ def present_profile_details_dialog(
     dialog = Gtk.Dialog(title="Imported Profile", transient_for=parent, modal=True)
     dialog.set_default_size(420, 360)
     dialog.set_resizable(False)
-    dialog.add_css_class("connect-dialog")
     dialog.add_button("", DELETE_RESPONSE)
     dialog.add_button("", Gtk.ResponseType.ACCEPT)
     dialog.set_default_response(Gtk.ResponseType.ACCEPT)
@@ -65,8 +65,7 @@ def present_profile_details_dialog(
             css_class="dialog-action-connect",
         )
 
-    area = dialog.get_content_area()
-    area.add_css_class("dialog-shell")
+    area = configure_dialog_chrome(dialog, title="Imported Profile")
     box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=16)
     box.set_margin_top(20)
     box.set_margin_bottom(20)
@@ -92,6 +91,8 @@ def present_profile_details_dialog(
     profile_name_entry.set_text(details["profile_name"] or profile.name)
     profile_name_entry.add_css_class("dialog-entry")
     profile_name_entry.add_css_class("dialog-entry-plain")
+    profile_name_entry.set_hexpand(True)
+    profile_name_entry.set_halign(Gtk.Align.FILL)
     grid.attach(profile_name_label, 0, 0, 1, 1)
     grid.attach(profile_name_entry, 0, 1, 1, 1)
 
@@ -119,6 +120,8 @@ def present_profile_details_dialog(
     if profile.assigned_proxy_id and not any(item.id == profile.assigned_proxy_id for item in proxies):
         proxy_combo.append(profile.assigned_proxy_id, f"Missing proxy ({profile.assigned_proxy_id})")
     proxy_combo.set_active_id(profile.assigned_proxy_id or "")
+    proxy_combo.set_hexpand(True)
+    proxy_combo.set_halign(Gtk.Align.FILL)
     grid.attach(proxy_label, 0, 6, 1, 1)
     grid.attach(proxy_combo, 0, 7, 1, 1)
 

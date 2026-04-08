@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 
+from app.dialogs.common import configure_dialog_chrome
 
 try:
     import gi
@@ -30,7 +31,6 @@ def present_disconnect_confirmation_dialog(
     dialog = Gtk.Dialog(title="Disconnect VPN", transient_for=parent, modal=True)
     dialog.set_default_size(380, 240)
     dialog.set_resizable(False)
-    dialog.add_css_class("connect-dialog")
     dialog.add_button("Cancel", Gtk.ResponseType.CANCEL)
     dialog.add_button("Confirm", Gtk.ResponseType.ACCEPT)
     dialog.set_default_response(Gtk.ResponseType.ACCEPT)
@@ -42,8 +42,7 @@ def present_disconnect_confirmation_dialog(
     if cancel_button is not None:
         cancel_button.add_css_class("secondary-cta")
 
-    area = dialog.get_content_area()
-    area.add_css_class("dialog-shell")
+    area = configure_dialog_chrome(dialog, title="Disconnect VPN")
     box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=14)
     box.set_margin_top(20)
     box.set_margin_bottom(20)

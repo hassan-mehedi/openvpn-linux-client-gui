@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 
+from app.dialogs.common import configure_dialog_chrome
 from core.models import ProxyCredentials, ProxyDefinition, ProxyType
 
 
@@ -36,11 +37,8 @@ def present_proxy_manager_dialog(
 
     dialog = Gtk.Dialog(title="Saved Proxies", transient_for=parent, modal=True)
     dialog.set_default_size(520, 460)
-    dialog.add_css_class("connect-dialog")
     dialog.add_button("Close", Gtk.ResponseType.CLOSE)
-
-    area = dialog.get_content_area()
-    area.add_css_class("dialog-shell")
+    area = configure_dialog_chrome(dialog, title="Saved Proxies")
 
     shell = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=16)
     shell.set_margin_top(20)
@@ -245,13 +243,13 @@ def present_proxy_editor_dialog(
         modal=True,
     )
     dialog.set_default_size(420, 420)
-    dialog.add_css_class("connect-dialog")
     dialog.add_button("Cancel", Gtk.ResponseType.CANCEL)
     dialog.add_button("Save", Gtk.ResponseType.ACCEPT)
     dialog.set_default_response(Gtk.ResponseType.ACCEPT)
-
-    area = dialog.get_content_area()
-    area.add_css_class("dialog-shell")
+    area = configure_dialog_chrome(
+        dialog,
+        title="Edit Proxy" if proxy is not None else "Add Proxy",
+    )
 
     shell = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=16)
     shell.set_margin_top(20)
@@ -274,6 +272,8 @@ def present_proxy_editor_dialog(
     ):
         type_combo.append(item, label)
     type_combo.set_active_id(proxy.type.value if proxy is not None else ProxyType.HTTP.value)
+    type_combo.set_hexpand(True)
+    type_combo.set_halign(Gtk.Align.FILL)
     _attach_form_row(grid, "Type", type_combo, 1)
 
     host_entry = Gtk.Entry()
@@ -390,9 +390,15 @@ def _attach_form_row(grid: Gtk.Grid, label: str, widget, row: int) -> None:
     title.set_xalign(0)
     title.add_css_class("dialog-field-label")
     grid.attach(title, 0, row, 1, 1)
-    widget.add_css_class("setting-control")
-    widget.set_hexpand(True)
-    widget.set_halign(Gtk.Align.FILL)
+    if isinstance(widget, Gtk.Switch):
+        widget.add_css_class("setting-switch")
+        widget.set_hexpand(False)
+        widget.set_halign(Gtk.Align.START)
+        widget.set_valign(Gtk.Align.CENTER)
+    else:
+        widget.add_css_class("setting-control")
+        widget.set_hexpand(True)
+        widget.set_halign(Gtk.Align.FILL)
     grid.attach(widget, 1, row, 1, 1)
 
 

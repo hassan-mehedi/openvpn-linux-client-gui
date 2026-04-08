@@ -6,6 +6,7 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
+from app.dialogs.common import configure_dialog_chrome
 from core.models import ImportPreview, ImportSource
 
 
@@ -41,7 +42,6 @@ def present_import_profile_dialog(
     dialog = Gtk.Dialog(title="Import Profile", transient_for=parent, modal=True)
     dialog.set_default_size(440, 520)
     dialog.set_resizable(False)
-    dialog.add_css_class("connect-dialog")
     dialog.add_button("Cancel", Gtk.ResponseType.CANCEL)
     dialog.add_button("Profiles", Gtk.ResponseType.REJECT)
     dialog.add_button("Next", Gtk.ResponseType.ACCEPT)
@@ -57,8 +57,7 @@ def present_import_profile_dialog(
     if accept_button is not None:
         accept_button.add_css_class("primary-cta")
 
-    area = dialog.get_content_area()
-    area.add_css_class("dialog-shell")
+    area = configure_dialog_chrome(dialog, title="Import Profile")
     box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=18)
     box.set_margin_top(20)
     box.set_margin_bottom(20)
@@ -167,6 +166,8 @@ def present_import_profile_dialog(
     review_name_entry = Gtk.Entry()
     review_name_entry.add_css_class("dialog-entry")
     review_name_entry.add_css_class("dialog-entry-plain")
+    review_name_entry.set_hexpand(True)
+    review_name_entry.set_halign(Gtk.Align.FILL)
     review_grid.attach(review_name_label, 0, 0, 1, 1)
     review_grid.attach(review_name_entry, 0, 1, 1, 1)
 
