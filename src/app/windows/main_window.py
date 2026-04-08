@@ -220,6 +220,8 @@ def OpenVPNMainWindow(application, services: ServiceContainer):  # noqa: N802
     stats_overview.append(stats_overview_body)
 
     stats_grid = Gtk.Grid(column_spacing=24, row_spacing=12)
+    stats_grid.set_hexpand(True)
+    stats_grid.set_column_homogeneous(True)
     stats_card.append(stats_grid)
 
     stats_duration_value = _build_stat(stats_grid, "DURATION", 0, 0)
@@ -1752,11 +1754,15 @@ def OpenVPNMainWindow(application, services: ServiceContainer):  # noqa: N802
 
 def _build_stat(grid: Gtk.Grid, label: str, column: int, row: int) -> Gtk.Label:
     wrapper = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
+    wrapper.set_hexpand(True)
+    wrapper.set_halign(Gtk.Align.FILL)
     title = Gtk.Label(label=label)
     title.set_xalign(0)
+    title.set_hexpand(True)
     title.add_css_class("stat-label")
     value = Gtk.Label(label="0")
     value.set_xalign(0)
+    value.set_hexpand(True)
     value.add_css_class("stat-value")
     wrapper.append(title)
     wrapper.append(value)
