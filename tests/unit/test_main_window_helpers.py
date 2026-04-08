@@ -6,19 +6,36 @@ from app.windows.main_window import (
     _default_support_bundle_path,
     _diagnostics_summary,
     _display_capability_name,
+    _format_bytes,
     _format_duration,
     _format_last_update,
+    _format_latency,
+    _format_packet_age,
+    _format_packets,
+    _format_rate,
     _inactive_profile_details,
     _infer_identity_from_profile_name,
+    _normalized_telemetry_history,
     _refresh_tooltip_for_page,
     _settings_signature,
     _should_run_debounced_action,
     _short_service_name,
     _subtitle_for_page,
+    _telemetry_detail,
     _stats_body_for,
     _stats_title_for,
 )
-from core.models import AppSettings, CapabilityState, ImportSource, Profile, SessionDescriptor, SessionPhase
+from core.models import (
+    AppSettings,
+    CapabilityState,
+    ImportSource,
+    Profile,
+    SessionDescriptor,
+    SessionPhase,
+    SessionTelemetryPoint,
+    SessionTelemetrySample,
+    SessionTelemetrySnapshot,
+)
 from core.session_manager import SessionSnapshot
 
 
@@ -72,6 +89,70 @@ def test_stats_copy_prefers_backend_status_when_available() -> None:
     assert _stats_body_for(snapshot) == "Waiting for server response."
 
 
+def test_format_bytes_uses_human_units() -> None:
+    assert _format_bytes(1536) == "1.5 KB"
+
+
+def test_format_rate_uses_byte_units_per_second() -> None:
+    assert _format_rate(2048.0) == "2.0 KB/s"
+
+
+def test_format_latency_rounds_reasonably() -> None:
+    assert _format_latency(25.4) == "25 ms"
+
+
+def test_format_packets_uses_grouping() -> None:
+    assert _format_packets(12345) == "12,345"
+
+
+def test_format_packet_age_uses_latest_packet_timestamp() -> None:
+    now = datetime.now(timezone.utc)
+    snapshot = SessionTelemetrySnapshot(
+        sample=SessionTelemetrySample(
+            session_id="session-1",
+            last_packet_received_at=now - timedelta(seconds=6),
+            last_packet_sent_at=now - timedelta(seconds=3),
+            updated_at=now,
+            available=True,
+        )
+    )
+
+    assert _format_packet_age(snapshot) == "3s ago"
+
+
+def test_telemetry_detail_prefers_backend_message_when_unavailable() -> None:
+    snapshot = SessionTelemetrySnapshot(
+        sample=SessionTelemetrySample(
+            session_id="session-1",
+            updated_at=datetime.now(timezone.utc),
+            available=False,
+            detail="Session telemetry is not exposed by the backend.",
+        )
+    )
+
+    assert _telemetry_detail(snapshot) == "Session telemetry is not exposed by the backend."
+
+
+def test_normalized_telemetry_history_scales_to_peak_rate() -> None:
+    points = (
+        SessionTelemetryPoint(
+            captured_at=datetime.now(timezone.utc),
+            rx_rate_bps=100.0,
+            tx_rate_bps=50.0,
+        ),
+        SessionTelemetryPoint(
+            captured_at=datetime.now(timezone.utc),
+            rx_rate_bps=200.0,
+            tx_rate_bps=150.0,
+        ),
+    )
+
+    assert _normalized_telemetry_history(points) == (
+        (0.5, 0.25),
+        (1.0, 0.75),
+    )
+
+
 def test_infer_identity_from_profile_name_extracts_username_and_host() -> None:
     assert _infer_identity_from_profile_name("openvpn@vpn.example.com [profile-6]") == (
         "openvpn",
@@ -90,6 +171,22 @@ def test_inactive_profile_details_prefers_inferred_windows_style_identity() -> N
         "vpn.example.com",
         "openvpn",
         "Source: file",
+    ]
+
+
+def test_inactive_profile_details_prefers_proxy_name_over_raw_identifier() -> None:
+    profile = Profile(
+        id="profile-1",
+        name="openvpn@vpn.example.com [profile-6]",
+        source=ImportSource.FILE,
+        assigned_proxy_id="proxy-1",
+    )
+
+    assert _inactive_profile_details(profile, proxy_name="Office Proxy") == [
+        "vpn.example.com",
+        "openvpn",
+        "Source: file",
+        "Proxy: Office Proxy",
     ]
 
 

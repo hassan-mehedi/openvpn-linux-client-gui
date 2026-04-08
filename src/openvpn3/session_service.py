@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from typing import Any, Callable
 
-from core.models import SessionDescriptor, SessionPhase
+from core.models import SessionDescriptor, SessionPhase, SessionTelemetrySample
 from openvpn3.dbus_client import (
     LOG_SERVICE_NAME,
     SESSION_SERVICE_NAME,
@@ -80,6 +80,103 @@ class SessionService:
 
     def get_session_status(self, session_id: str) -> SessionDescriptor:
         return self._descriptor_from_path(self.resolve_object_path(session_id), session_id=session_id)
+
+    def get_session_telemetry(self, session_id: str) -> SessionTelemetrySample:
+        object_path = self.resolve_object_path(session_id)
+        properties = self._client.get_all_properties(
+            service=SESSION_SERVICE_NAME,
+            object_path=object_path,
+            interface=SESSION_INTERFACE,
+        )
+        statistics = _statistics_mapping(properties)
+        bytes_in = _pick_int(
+            properties,
+            "bytes_in",
+            "bytes_received",
+            "received_bytes",
+            "rx_bytes",
+            "session_bytes_in",
+            fallback=statistics,
+            fallback_keys=("BYTES_IN", "TUN_BYTES_IN"),
+        )
+        bytes_out = _pick_int(
+            properties,
+            "bytes_out",
+            "bytes_sent",
+            "sent_bytes",
+            "tx_bytes",
+            "session_bytes_out",
+            fallback=statistics,
+            fallback_keys=("BYTES_OUT", "TUN_BYTES_OUT"),
+        )
+        packets_in = _pick_int(
+            properties,
+            "packets_in",
+            "packets_received",
+            "received_packets",
+            "rx_packets",
+            fallback=statistics,
+            fallback_keys=("PACKETS_IN", "TUN_PACKETS_IN"),
+        )
+        packets_out = _pick_int(
+            properties,
+            "packets_out",
+            "packets_sent",
+            "sent_packets",
+            "tx_packets",
+            fallback=statistics,
+            fallback_keys=("PACKETS_OUT", "TUN_PACKETS_OUT"),
+        )
+        latency_ms = _pick_float(
+            properties,
+            "latency_ms",
+            "server_latency_ms",
+            "ping_time_ms",
+            "rtt_ms",
+        )
+        last_packet_received_at = _pick_timestamp(
+            properties,
+            "last_packet_received",
+            "last_packet_received_at",
+            "rx_last_packet",
+        )
+        last_packet_sent_at = _pick_timestamp(
+            properties,
+            "last_packet_sent",
+            "last_packet_sent_at",
+            "tx_last_packet",
+        )
+        available = any(
+            value is not None
+            for value in (
+                bytes_in,
+                bytes_out,
+                packets_in,
+                packets_out,
+                latency_ms,
+                last_packet_received_at,
+                last_packet_sent_at,
+            )
+        )
+        return SessionTelemetrySample(
+            session_id=session_id,
+            bytes_in=bytes_in,
+            bytes_out=bytes_out,
+            packets_in=packets_in,
+            packets_out=packets_out,
+            latency_ms=latency_ms,
+            last_packet_received_at=last_packet_received_at,
+            last_packet_sent_at=last_packet_sent_at,
+            updated_at=datetime.now(timezone.utc),
+            available=available,
+            detail=_telemetry_detail(
+                available=available,
+                statistics=statistics,
+                latency_ms=latency_ms,
+                last_packet_received_at=last_packet_received_at,
+                last_packet_sent_at=last_packet_sent_at,
+            ),
+        )
 
     def list_sessions(self) -> tuple[SessionDescriptor, ...]:
         payload = self._client.call_method(
@@ -197,6 +294,91 @@ def _parse_timestamp(value: Any) -> datetime | None:
     if isinstance(value, (int, float)):
         return datetime.fromtimestamp(value, tz=timezone.utc)
     return datetime.fromisoformat(str(value))
+
+
+def _pick_value(
+    properties: dict[str, Any],
+    *keys: str,
+    fallback: dict[str, Any] | None = None,
+    fallback_keys: tuple[str, ...] = (),
+) -> Any:
+    for key in keys:
+        if key in properties and properties[key] not in (None, ""):
+            return properties[key]
+    if fallback:
+        for key in fallback_keys:
+            if key in fallback and fallback[key] not in (None, ""):
+                return fallback[key]
+    return None
+
+
+def _pick_int(
+    properties: dict[str, Any],
+    *keys: str,
+    fallback: dict[str, Any] | None = None,
+    fallback_keys: tuple[str, ...] = (),
+) -> int | None:
+    value = _pick_value(
+        properties,
+        *keys,
+        fallback=fallback,
+        fallback_keys=fallback_keys,
+    )
+    if value is None:
+        return None
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _pick_float(properties: dict[str, Any], *keys: str) -> float | None:
+    value = _pick_value(properties, *keys)
+    if value is None:
+        return None
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _pick_timestamp(properties: dict[str, Any], *keys: str) -> datetime | None:
+    value = _pick_value(properties, *keys)
+    if value is None:
+        return None
+    try:
+        return _parse_timestamp(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _statistics_mapping(properties: dict[str, Any]) -> dict[str, Any]:
+    raw = properties.get("statistics")
+    if not isinstance(raw, dict):
+        return {}
+    return {str(key): value for key, value in raw.items()}
+
+
+def _telemetry_detail(
+    *,
+    available: bool,
+    statistics: dict[str, Any],
+    latency_ms: float | None,
+    last_packet_received_at: datetime | None,
+    last_packet_sent_at: datetime | None,
+) -> str | None:
+    if not available:
+        return "Session telemetry is not exposed by the backend."
+    if statistics and (
+        latency_ms is None
+        and last_packet_received_at is None
+        and last_packet_sent_at is None
+    ):
+        return (
+            "Traffic counters are available from the backend. "
+            "Latency and packet-age timestamps are not exposed for this session."
+        )
+    return None
 
 
 def _map_status_to_phase(status_major: int, status_minor: int) -> SessionPhase:

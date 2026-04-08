@@ -1,5 +1,13 @@
-from core.models import AttentionFieldType, AttentionRequest, SessionDescriptor, SessionPhase
+import pytest
+
+from core.models import (
+    AttentionFieldType,
+    AttentionRequest,
+    SessionDescriptor,
+    SessionPhase,
+)
 from core.session_manager import SessionLifecycleService
+from core.secrets import MemorySecretStore, ProfileSecretsService
 
 
 class FakeSessionBackend:
@@ -95,6 +103,45 @@ class FakeAttentionBackend:
         self.submissions.append((session_id, field_id, value))
 
 
+class FakeConnectionPreparationBackend:
+    def __init__(self, *, error: Exception | None = None) -> None:
+        self.error = error
+        self.prepared_profile_ids: list[str] = []
+
+    def prepare_profile(self, profile_id: str) -> None:
+        if self.error is not None:
+            raise self.error
+        self.prepared_profile_ids.append(profile_id)
+
+
+class FakePasswordAttentionBackend(FakeAttentionBackend):
+    def __init__(
+        self,
+        session_backend: FakeSessionBackend,
+        *,
+        accept_saved_input: bool,
+    ) -> None:
+        super().__init__()
+        self._session_backend = session_backend
+        self._accept_saved_input = accept_saved_input
+
+    def get_attention_requests(self, session_id: str) -> tuple[AttentionRequest, ...]:
+        return (
+            AttentionRequest(
+                session_id=session_id,
+                field_id="password",
+                label="Password",
+                field_type=AttentionFieldType.SECRET,
+                secret=True,
+            ),
+        )
+
+    def provide_user_input(self, session_id: str, field_id: str, value: str) -> None:
+        super().provide_user_input(session_id, field_id, value)
+        if self._accept_saved_input:
+            self._session_backend.requires_input = False
+
+
 def test_session_lifecycle_connects_without_attention() -> None:
     service = SessionLifecycleService(FakeSessionBackend(), FakeAttentionBackend())
 
@@ -103,6 +150,58 @@ def test_session_lifecycle_connects_without_attention() -> None:
     assert snapshot.state is SessionPhase.CONNECTED
     assert snapshot.active_session is not None
     assert snapshot.active_session.profile_id == "profile-1"
+
+
+def test_session_lifecycle_prepares_profile_before_creating_session() -> None:
+    connection_preparation = FakeConnectionPreparationBackend()
+    service = SessionLifecycleService(
+        FakeSessionBackend(),
+        FakeAttentionBackend(),
+        connection_preparation=connection_preparation,
+    )
+
+    snapshot = service.prepare_connection("profile-1")
+
+    assert connection_preparation.prepared_profile_ids == ["profile-1"]
+    assert snapshot.active_session is not None
+    assert snapshot.active_session.id == "session-1"
+
+
+def test_session_lifecycle_marks_error_when_profile_preparation_fails() -> None:
+    service = SessionLifecycleService(
+        FakeSessionBackend(),
+        FakeAttentionBackend(),
+        connection_preparation=FakeConnectionPreparationBackend(
+            error=RuntimeError("Assigned proxy is missing.")
+        ),
+    )
+
+    with pytest.raises(RuntimeError, match="Assigned proxy is missing."):
+        service.prepare_connection("profile-1")
+
+    snapshot = service.snapshot()
+    assert snapshot.state is SessionPhase.ERROR
+    assert snapshot.last_error == "Assigned proxy is missing."
+
+
+def test_session_lifecycle_can_retry_after_profile_preparation_error() -> None:
+    connection_preparation = FakeConnectionPreparationBackend(
+        error=RuntimeError("Assigned proxy is missing.")
+    )
+    service = SessionLifecycleService(
+        FakeSessionBackend(),
+        FakeAttentionBackend(),
+        connection_preparation=connection_preparation,
+    )
+
+    with pytest.raises(RuntimeError, match="Assigned proxy is missing."):
+        service.prepare_connection("profile-1")
+
+    connection_preparation.error = None
+    snapshot = service.prepare_connection("profile-1")
+
+    assert snapshot.state is SessionPhase.READY
+    assert connection_preparation.prepared_profile_ids == ["profile-1"]
 
 
 def test_session_lifecycle_waits_for_input_and_resumes() -> None:
@@ -188,3 +287,54 @@ def test_session_lifecycle_restores_existing_session() -> None:
     assert snapshot.state is SessionPhase.CONNECTED
     assert snapshot.active_session is not None
     assert snapshot.active_session.id == "session-existing"
+
+
+def test_session_lifecycle_auto_submits_saved_password_and_advances() -> None:
+    session_backend = FakeSessionBackend(requires_input=True)
+    attention_backend = FakePasswordAttentionBackend(
+        session_backend,
+        accept_saved_input=True,
+    )
+    profile_secrets = ProfileSecretsService(MemorySecretStore())
+    profile_secrets.save_password("profile-1", "secret")
+    service = SessionLifecycleService(
+        session_backend,
+        attention_backend,
+        profile_credentials=profile_secrets,
+    )
+
+    snapshot = service.prepare_connection("profile-1")
+
+    assert attention_backend.submissions == [("session-1", "password", "secret")]
+    assert snapshot.state is SessionPhase.READY
+    assert snapshot.attention_requests == ()
+
+
+def test_session_lifecycle_saved_password_attempts_only_once_per_session() -> None:
+    session_backend = FakeSessionBackend(requires_input=True)
+    attention_backend = FakePasswordAttentionBackend(
+        session_backend,
+        accept_saved_input=False,
+    )
+    profile_secrets = ProfileSecretsService(MemorySecretStore())
+    profile_secrets.save_password("profile-1", "secret")
+    service = SessionLifecycleService(
+        session_backend,
+        attention_backend,
+        profile_credentials=profile_secrets,
+    )
+
+    first = service.prepare_connection("profile-1")
+    service.watch_active_session(lambda _snapshot: None)
+    assert session_backend.subscriber is not None
+    session_backend.subscriber(
+        SessionDescriptor(
+            id="session-1",
+            profile_id="profile-1",
+            state=SessionPhase.WAITING_FOR_INPUT,
+            requires_input=True,
+        )
+    )
+
+    assert first.state is SessionPhase.WAITING_FOR_INPUT
+    assert attention_backend.submissions == [("session-1", "password", "secret")]

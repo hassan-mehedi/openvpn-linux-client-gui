@@ -25,7 +25,9 @@ def present_attention_dialog(
     *,
     profile_name: str,
     requests: tuple[AttentionRequest, ...],
-    on_submit: Callable[[dict[str, str]], None],
+    allow_save_password: bool = False,
+    save_password: bool = False,
+    on_submit: Callable[[dict[str, str], bool], None],
 ) -> None:
     if Gtk is None:
         raise RuntimeError("GTK4 is required to create the attention dialog.") from _IMPORT_ERROR
@@ -102,6 +104,13 @@ def present_attention_dialog(
 
     box.append(fields)
 
+    save_password_toggle = None
+    if allow_save_password:
+        save_password_toggle = Gtk.CheckButton(label="Save password securely")
+        save_password_toggle.set_active(save_password)
+        save_password_toggle.add_css_class("dialog-check")
+        box.append(save_password_toggle)
+
     error_label = Gtk.Label()
     error_label.set_wrap(True)
     error_label.set_xalign(0)
@@ -123,7 +132,10 @@ def present_attention_dialog(
                 error_label.set_label(f"Required: {', '.join(empty_labels)}")
                 error_label.set_visible(True)
                 return
-            on_submit(values)
+            on_submit(
+                values,
+                save_password_toggle.get_active() if save_password_toggle is not None else False,
+            )
         dialog.destroy()
 
     dialog.connect("response", on_response)

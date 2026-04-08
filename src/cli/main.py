@@ -35,6 +35,9 @@ def build_parser() -> argparse.ArgumentParser:
 
     remove_profile = profiles_sub.add_parser("remove")
     remove_profile.add_argument("profile_id")
+    assign_proxy = profiles_sub.add_parser("assign-proxy")
+    assign_proxy.add_argument("profile_id")
+    assign_proxy.add_argument("proxy_id", nargs="?")
 
     sessions = subparsers.add_parser("sessions")
     sessions_sub = sessions.add_subparsers(dest="action", required=True)
@@ -63,6 +66,8 @@ def build_parser() -> argparse.ArgumentParser:
     proxy_add.add_argument("type", choices=[item.value for item in ProxyType])
     proxy_add.add_argument("host")
     proxy_add.add_argument("port", type=int)
+    proxy_remove = proxies_sub.add_parser("remove")
+    proxy_remove.add_argument("proxy_id")
 
     subparsers.add_parser("doctor")
     return parser
@@ -109,6 +114,9 @@ def _handle_profiles(args: argparse.Namespace, services: ServiceContainer) -> in
         return 0
     if args.action == "remove":
         services.profile_catalog.delete_profile(args.profile_id)
+        return 0
+    if args.action == "assign-proxy":
+        services.profile_catalog.assign_proxy(args.profile_id, args.proxy_id)
         return 0
     raise ValueError(f"Unsupported profiles action: {args.action}")
 
@@ -164,6 +172,10 @@ def _handle_proxies(args: argparse.Namespace, services: ServiceContainer) -> int
         )
         saved = services.proxies.save_proxy(proxy)
         print(saved.id)
+        return 0
+    if args.action == "remove":
+        services.proxies.delete_proxy(args.proxy_id)
+        services.profile_catalog.clear_proxy_assignments(args.proxy_id)
         return 0
     raise ValueError(f"Unsupported proxies action: {args.action}")
 

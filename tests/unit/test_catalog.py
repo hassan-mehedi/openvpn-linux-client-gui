@@ -82,6 +82,16 @@ class FakeOnboarding:
         )
 
 
+class FakeProxyBackend:
+    def __init__(self, proxy_ids: tuple[str, ...]) -> None:
+        self._proxy_ids = set(proxy_ids)
+
+    def get_proxy(self, proxy_id: str) -> object | None:
+        if proxy_id in self._proxy_ids:
+            return object()
+        return None
+
+
 def test_catalog_filters_and_sorts_profiles() -> None:
     now = datetime.now(timezone.utc)
     backend = FakeProfileBackend(
@@ -137,3 +147,56 @@ def test_catalog_import_file_uses_custom_profile_name(tmp_path: Path) -> None:
     imported = service.import_file(profile_path, profile_name="Office VPN")
 
     assert imported.name == "Office VPN"
+
+
+def test_catalog_assigns_proxy_via_local_override(tmp_path: Path) -> None:
+    profile = Profile(id="profile-1", name="Alpha", source=ImportSource.FILE)
+    backend = FakeProfileBackend((profile,))
+    proxies = FakeProxyBackend(("proxy-1",))
+    service = ProfileCatalogService(
+        backend,
+        FakeOnboarding(),
+        config_dir=tmp_path,
+        proxy_backend=proxies,
+    )
+
+    service.assign_proxy("profile-1", "proxy-1")
+
+    snapshot = service.list_profiles()
+    assert snapshot.profiles[0].assigned_proxy_id == "proxy-1"
+
+
+def test_catalog_clears_proxy_assignment_override(tmp_path: Path) -> None:
+    profile = Profile(id="profile-1", name="Alpha", source=ImportSource.FILE)
+    backend = FakeProfileBackend((profile,))
+    proxies = FakeProxyBackend(("proxy-1",))
+    service = ProfileCatalogService(
+        backend,
+        FakeOnboarding(),
+        config_dir=tmp_path,
+        proxy_backend=proxies,
+    )
+    service.assign_proxy("profile-1", "proxy-1")
+
+    service.assign_proxy("profile-1", None)
+
+    snapshot = service.list_profiles()
+    assert snapshot.profiles[0].assigned_proxy_id is None
+
+
+def test_catalog_rejects_unknown_proxy_assignment(tmp_path: Path) -> None:
+    profile = Profile(id="profile-1", name="Alpha", source=ImportSource.FILE)
+    backend = FakeProfileBackend((profile,))
+    service = ProfileCatalogService(
+        backend,
+        FakeOnboarding(),
+        config_dir=tmp_path,
+        proxy_backend=FakeProxyBackend(()),
+    )
+
+    try:
+        service.assign_proxy("profile-1", "missing-proxy")
+    except KeyError as exc:
+        assert "missing-proxy" in str(exc)
+    else:  # pragma: no cover - defensive branch for a missing exception
+        raise AssertionError("Expected unknown proxy assignment to fail.")

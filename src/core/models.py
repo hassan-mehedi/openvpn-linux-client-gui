@@ -107,6 +107,36 @@ class SessionDescriptor:
 
 
 @dataclass(slots=True, frozen=True)
+class SessionTelemetrySample:
+    session_id: str
+    bytes_in: int | None = None
+    bytes_out: int | None = None
+    packets_in: int | None = None
+    packets_out: int | None = None
+    latency_ms: float | None = None
+    last_packet_received_at: datetime | None = None
+    last_packet_sent_at: datetime | None = None
+    updated_at: datetime = field(default_factory=utc_now)
+    available: bool = False
+    detail: str | None = None
+
+
+@dataclass(slots=True, frozen=True)
+class SessionTelemetryPoint:
+    captured_at: datetime
+    rx_rate_bps: float
+    tx_rate_bps: float
+
+
+@dataclass(slots=True, frozen=True)
+class SessionTelemetrySnapshot:
+    sample: SessionTelemetrySample
+    rx_rate_bps: float | None = None
+    tx_rate_bps: float | None = None
+    history: tuple[SessionTelemetryPoint, ...] = ()
+
+
+@dataclass(slots=True, frozen=True)
 class AttentionRequest:
     session_id: str
     field_id: str

@@ -14,6 +14,9 @@ The repository currently contains the initial production foundation:
 - typed core models and state machine
 - onboarding, settings, proxy, secrets, and diagnostics services
 - multi-page GTK shell with Profiles, Settings, and Diagnostics views
+- saved proxy CRUD from the Settings page plus per-profile proxy assignment
+- connect-time application of assigned proxies plus validated runtime config defaults
+- live session telemetry with bytes, rates, latency, and throughput history
 - OpenVPN 3 adapter layer behind a shared D-Bus client abstraction
 - companion CLI entry point
 - unit and integration-style tests for the first behaviors

@@ -14,6 +14,7 @@ from app.dialogs import (
     present_disconnect_confirmation_dialog,
     present_import_profile_dialog,
     present_profile_details_dialog,
+    present_proxy_manager_dialog,
 )
 from app.theme import apply_theme_mode
 from core.bootstrap import ServiceContainer
@@ -25,11 +26,17 @@ from core.models import (
     ImportSource,
     LaunchBehavior,
     Profile,
+    ProxyCredentials,
+    ProxyDefinition,
+    SavedCredentialState,
     SecurityLevel,
     SessionPhase,
+    SessionTelemetryPoint,
+    SessionTelemetrySnapshot,
     ThemeMode,
 )
 from core.onboarding import OnboardingError
+from core.secrets import saved_password_request_id
 from core.session_manager import SessionSnapshot
 
 
@@ -217,8 +224,33 @@ def OpenVPNMainWindow(application, services: ServiceContainer):  # noqa: N802
 
     stats_duration_value = _build_stat(stats_grid, "DURATION", 0, 0)
     stats_phase_value = _build_stat(stats_grid, "STATUS", 1, 0)
+    stats_bytes_in_value = _build_stat(stats_grid, "BYTES IN", 2, 0)
     stats_updated_value = _build_stat(stats_grid, "LAST UPDATE", 0, 1)
     stats_session_value = _build_stat(stats_grid, "SESSION", 1, 1)
+    stats_bytes_out_value = _build_stat(stats_grid, "BYTES OUT", 2, 1)
+    stats_rx_rate_value = _build_stat(stats_grid, "RX RATE", 0, 2)
+    stats_tx_rate_value = _build_stat(stats_grid, "TX RATE", 1, 2)
+    stats_latency_value = _build_stat(stats_grid, "LATENCY", 2, 2)
+    stats_packets_in_value = _build_stat(stats_grid, "PACKETS IN", 0, 3)
+    stats_packets_out_value = _build_stat(stats_grid, "PACKETS OUT", 1, 3)
+    stats_packet_age_value = _build_stat(stats_grid, "PACKET AGE", 2, 3)
+
+    telemetry_graph_title = Gtk.Label(label="THROUGHPUT")
+    telemetry_graph_title.set_xalign(0)
+    telemetry_graph_title.add_css_class("stats-heading")
+    stats_card.append(telemetry_graph_title)
+
+    telemetry_graph = Gtk.DrawingArea()
+    telemetry_graph.set_content_height(88)
+    telemetry_graph.set_hexpand(True)
+    telemetry_graph.add_css_class("surface-card")
+    stats_card.append(telemetry_graph)
+
+    telemetry_graph_detail = Gtk.Label()
+    telemetry_graph_detail.set_xalign(0)
+    telemetry_graph_detail.set_wrap(True)
+    telemetry_graph_detail.add_css_class("section-caption")
+    stats_card.append(telemetry_graph_detail)
 
     empty_page = Adw.StatusPage(
         title="No profiles imported",
@@ -426,6 +458,22 @@ def OpenVPNMainWindow(application, services: ServiceContainer):  # noqa: N802
         )
     )
 
+    proxy_card, proxy_body = _build_section_card(
+        "Proxies",
+        "Manage saved proxies in one place, then assign a single proxy per profile from the profile details flow.",
+    )
+    settings_content.append(proxy_card)
+
+    proxy_summary_label = Gtk.Label()
+    proxy_summary_label.set_xalign(0)
+    proxy_summary_label.set_wrap(True)
+    proxy_summary_label.add_css_class("section-caption")
+    proxy_body.append(proxy_summary_label)
+
+    manage_proxies_button = Gtk.Button(label="Manage Proxies")
+    manage_proxies_button.add_css_class("secondary-cta")
+    proxy_body.append(manage_proxies_button)
+
     settings_actions = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=10)
     settings_actions.set_halign(Gtk.Align.START)
     settings_content.append(settings_actions)
@@ -527,6 +575,7 @@ def OpenVPNMainWindow(application, services: ServiceContainer):  # noqa: N802
     watched_session_id: str | None = None
     recent_actions: dict[str, float] = {}
     diagnostics_cache: dict[str, object | None] = {"snapshot": None}
+    telemetry_cache: dict[str, object | None] = {"snapshot": None}
     last_diagnostics_render_at = 0.0
     settings_save_source_id: int | None = None
     settings_rendering = False
@@ -571,11 +620,21 @@ def OpenVPNMainWindow(application, services: ServiceContainer):  # noqa: N802
                 return profile.name
         return profile_id
 
+    def proxy_name_for(proxy_id: str | None) -> str | None:
+        if not proxy_id:
+            return None
+        proxy = services.proxies.get_proxy(proxy_id)
+        if proxy is None:
+            return f"Missing proxy ({proxy_id})"
+        return proxy.name
+
     def clear_session_watch() -> None:
         nonlocal active_watch, watched_session_id
         if active_watch is not None:
             active_watch()
             active_watch = None
+        if watched_session_id is not None:
+            services.telemetry.clear_session(watched_session_id)
         watched_session_id = None
 
     def visible_page_name() -> str:
@@ -640,9 +699,35 @@ def OpenVPNMainWindow(application, services: ServiceContainer):  # noqa: N802
                     "Capability-dependent settings stay visible so the GUI does not hide unsupported features."
                 )
                 dco_hint.set_label(_capability_detail(dco_capability))
+            render_proxy_summary()
         finally:
             settings_rendering = False
         last_saved_settings_signature = _settings_signature(settings)
+
+    def render_proxy_summary() -> None:
+        try:
+            proxies = services.proxies.list_proxies()
+            profiles = services.profile_catalog.list_profiles().profiles
+        except Exception as exc:  # pragma: no cover - filesystem dependent
+            proxy_summary_label.set_label(f"Proxy settings are unavailable: {exc}")
+            return
+
+        assigned_count = sum(1 for profile in profiles if profile.assigned_proxy_id)
+        storage_state = (
+            "Secure credential storage is available."
+            if services.proxies.secure_storage_available()
+            else "Credential-backed proxies require a configured secure secret store."
+        )
+        if not proxies:
+            proxy_summary_label.set_label(
+                "No saved proxies yet. Create one here, then assign it from a profile details dialog. "
+                + storage_state
+            )
+            return
+        proxy_summary_label.set_label(
+            f"{len(proxies)} proxy definition(s) saved. {assigned_count} profile(s) currently have a proxy assignment. "
+            + storage_state
+        )
 
     def collect_settings() -> AppSettings:
         capability_index = build_capability_index()
@@ -816,22 +901,72 @@ def OpenVPNMainWindow(application, services: ServiceContainer):  # noqa: N802
         active_watch = services.session_lifecycle.watch_active_session(on_update)
         watched_session_id = session_id
 
-    def prompt_attention(profile_name: str, snapshot: SessionSnapshot) -> None:
+    def sync_profile_password(
+        profile_id: str,
+        requests,
+        values: dict[str, str],
+        remaining_requests,
+        *,
+        save_password_requested: bool,
+    ) -> None:
+        field_id = saved_password_request_id(requests)
+        if field_id is None:
+            return
+        if not save_password_requested:
+            try:
+                services.profile_secrets.clear_password(profile_id)
+            except Exception as exc:  # pragma: no cover - secure storage dependent
+                show_toast(f"Could not clear saved password: {exc}")
+            return
+        if any(request.field_id == field_id for request in remaining_requests):
+            return
+        password = values.get(field_id, "").strip()
+        if not password:
+            return
+        try:
+            services.profile_secrets.save_password(profile_id, password)
+        except Exception as exc:  # pragma: no cover - secure storage dependent
+            show_toast(f"Could not save password: {exc}")
+
+    def prompt_attention(
+        profile_id: str,
+        profile_name: str,
+        snapshot: SessionSnapshot,
+        *,
+        save_password_requested: bool = False,
+    ) -> None:
         if not snapshot.attention_requests:
             return
+        allow_save_password = (
+            saved_password_request_id(snapshot.attention_requests) is not None
+            and services.profile_secrets.secure_storage_available()
+        )
+        current_credential_state = services.profile_secrets.saved_state(profile_id)
 
-        def on_submit(values: dict[str, str]) -> None:
+        def on_submit(values: dict[str, str], save_password_choice: bool) -> None:
             try:
                 updated = services.session_lifecycle.submit_attention_inputs(values)
             except Exception as exc:  # pragma: no cover - depends on runtime D-Bus
                 show_toast(f"Input failed: {exc}")
                 render_profiles(False)
                 return
+            sync_profile_password(
+                profile_id,
+                snapshot.attention_requests,
+                values,
+                updated.attention_requests,
+                save_password_requested=save_password_choice,
+            )
 
             ensure_session_watch()
             render_profiles(False)
             if updated.attention_requests:
-                prompt_attention(profile_name, updated)
+                prompt_attention(
+                    profile_id,
+                    profile_name,
+                    updated,
+                    save_password_requested=save_password_choice,
+                )
                 return
 
             try:
@@ -840,20 +975,38 @@ def OpenVPNMainWindow(application, services: ServiceContainer):  # noqa: N802
                 show_toast(f"Connect failed: {exc}")
                 render_profiles(False)
                 return
-            handle_connect_snapshot(profile_name, continued)
+            handle_connect_snapshot(
+                profile_id,
+                profile_name,
+                continued,
+                save_password_requested=save_password_choice,
+            )
 
         present_attention_dialog(
             window,
             profile_name=profile_name,
             requests=snapshot.attention_requests,
+            allow_save_password=allow_save_password,
+            save_password=current_credential_state.password_saved or save_password_requested,
             on_submit=on_submit,
         )
 
-    def handle_connect_snapshot(profile_name: str, snapshot: SessionSnapshot) -> None:
+    def handle_connect_snapshot(
+        profile_id: str,
+        profile_name: str,
+        snapshot: SessionSnapshot,
+        *,
+        save_password_requested: bool = False,
+    ) -> None:
         ensure_session_watch()
         render_profiles(False)
         if snapshot.attention_requests:
-            prompt_attention(profile_name, snapshot)
+            prompt_attention(
+                profile_id,
+                profile_name,
+                snapshot,
+                save_password_requested=save_password_requested,
+            )
             return
         if snapshot.state is SessionPhase.CONNECTED:
             show_toast(f"Connected to {profile_name}.")
@@ -864,13 +1017,23 @@ def OpenVPNMainWindow(application, services: ServiceContainer):  # noqa: N802
         elif snapshot.state is SessionPhase.ERROR and snapshot.last_error:
             show_toast(snapshot.last_error)
 
-    def on_connect(profile_id: str, profile_name: str) -> None:
+    def on_connect(
+        profile_id: str,
+        profile_name: str,
+        *,
+        save_password_requested: bool = False,
+    ) -> None:
         try:
             snapshot = services.session_lifecycle.connect(profile_id)
         except Exception as exc:  # pragma: no cover - depends on runtime D-Bus
             show_toast(f"Connect failed: {exc}")
             return
-        handle_connect_snapshot(profile_name, snapshot)
+        handle_connect_snapshot(
+            profile_id,
+            profile_name,
+            snapshot,
+            save_password_requested=save_password_requested,
+        )
 
     def on_disconnect(*_args) -> None:
         snapshot = services.session_lifecycle.snapshot()
@@ -928,10 +1091,14 @@ def OpenVPNMainWindow(application, services: ServiceContainer):  # noqa: N802
             except Exception as exc:  # pragma: no cover - depends on runtime D-Bus
                 show_toast(f"Resume failed: {exc}")
                 return
-            handle_connect_snapshot(profile_name, resumed)
+            handle_connect_snapshot(
+                snapshot.active_session.profile_id,
+                profile_name,
+                resumed,
+            )
             return
         if snapshot.attention_requests:
-            prompt_attention(profile_name, snapshot)
+            prompt_attention(snapshot.active_session.profile_id, profile_name, snapshot)
             return
         if snapshot.state in {SessionPhase.READY, SessionPhase.SESSION_CREATED}:
             try:
@@ -939,7 +1106,7 @@ def OpenVPNMainWindow(application, services: ServiceContainer):  # noqa: N802
             except Exception as exc:  # pragma: no cover - depends on runtime D-Bus
                 show_toast(f"Connect failed: {exc}")
                 return
-            handle_connect_snapshot(profile_name, continued)
+            handle_connect_snapshot(snapshot.active_session.profile_id, profile_name, continued)
             return
         try:
             updated = services.session_lifecycle.refresh_status()
@@ -981,17 +1148,62 @@ def OpenVPNMainWindow(application, services: ServiceContainer):  # noqa: N802
         )
 
     def on_open_profile_details(profile: Profile) -> None:
-        def save_profile(profile_name: str) -> None:
-            current_name = profile.name.strip()
-            normalized = profile_name.strip()
-            if normalized == current_name:
-                return
-            services.profile_catalog.rename_profile(profile.id, normalized)
-            show_toast(f"Saved profile name as {normalized}.")
-            render_profiles(False)
+        try:
+            available_proxies = services.proxies.list_proxies()
+        except Exception as exc:
+            show_toast(f"Could not load proxies: {exc}")
+            available_proxies = ()
+        try:
+            credential_state = services.profile_secrets.saved_state(profile.id)
+        except Exception as exc:
+            show_toast(f"Could not load saved password state: {exc}")
+            credential_state = SavedCredentialState(profile_id=profile.id, password_saved=False)
 
-        def connect_profile(profile_name: str) -> None:
-            on_connect(profile.id, profile_name)
+        def persist_profile(
+            profile_name: str,
+            assigned_proxy_id: str | None,
+            save_password_requested: bool,
+        ) -> None:
+            current_name = profile.name.strip()
+            current_proxy_id = profile.assigned_proxy_id
+            normalized = profile_name.strip()
+            changed = False
+            if normalized != current_name:
+                services.profile_catalog.rename_profile(profile.id, normalized)
+                show_toast(f"Saved profile name as {normalized}.")
+                changed = True
+            if assigned_proxy_id != current_proxy_id:
+                services.profile_catalog.assign_proxy(profile.id, assigned_proxy_id)
+                proxy_name = proxy_name_for(assigned_proxy_id) or "No proxy"
+                show_toast(f"Updated proxy assignment to {proxy_name}.")
+                changed = True
+            if credential_state.password_saved and not save_password_requested:
+                services.profile_secrets.clear_password(profile.id)
+                credential_state.password_saved = False
+                show_toast("Removed saved password.")
+            elif (not credential_state.password_saved) and save_password_requested:
+                show_toast("Password will be saved after the next successful authentication prompt.")
+            if changed:
+                render_profiles(False)
+
+        def save_profile(
+            profile_name: str,
+            assigned_proxy_id: str | None,
+            save_password_requested: bool,
+        ) -> None:
+            persist_profile(profile_name, assigned_proxy_id, save_password_requested)
+
+        def connect_profile(
+            profile_name: str,
+            assigned_proxy_id: str | None,
+            save_password_requested: bool,
+        ) -> None:
+            persist_profile(profile_name, assigned_proxy_id, save_password_requested)
+            on_connect(
+                profile.id,
+                profile_name,
+                save_password_requested=save_password_requested,
+            )
 
         def delete_profile() -> None:
             on_delete(profile.id, profile.name)
@@ -999,16 +1211,49 @@ def OpenVPNMainWindow(application, services: ServiceContainer):  # noqa: N802
         present_profile_details_dialog(
             window,
             profile=profile,
+            proxies=available_proxies,
+            credential_state=credential_state,
+            secure_storage_available=services.profile_secrets.secure_storage_available(),
             on_save=save_profile,
             on_connect=connect_profile,
             on_delete=delete_profile,
         )
 
-    def update_summary(snapshot: SessionSnapshot) -> None:
+    def on_manage_proxies(*_args) -> None:
+        def save_proxy_definition(
+            proxy: ProxyDefinition,
+            credentials: ProxyCredentials | None,
+            clear_credentials: bool,
+        ) -> ProxyDefinition:
+            return services.proxies.save_proxy(
+                proxy,
+                credentials=credentials,
+                clear_credentials=clear_credentials,
+            )
+
+        def delete_proxy_definition(proxy_id: str) -> None:
+            services.proxies.delete_proxy(proxy_id)
+            services.profile_catalog.clear_proxy_assignments(proxy_id)
+
+        present_proxy_manager_dialog(
+            window,
+            list_proxies=services.proxies.list_proxies,
+            load_credentials=services.proxies.load_proxy_credentials,
+            save_proxy=save_proxy_definition,
+            delete_proxy=delete_proxy_definition,
+            secure_storage_available=services.proxies.secure_storage_available(),
+            on_changed=lambda: (render_proxy_summary(), render_profiles(False)),
+        )
+
+    def update_summary(
+        snapshot: SessionSnapshot,
+        telemetry_snapshot: SessionTelemetrySnapshot | None,
+    ) -> None:
         if snapshot.active_session is None or snapshot.state is SessionPhase.IDLE:
             summary_card.set_visible(False)
             stats_heading.set_visible(False)
             stats_card.set_visible(False)
+            telemetry_cache["snapshot"] = None
             return
 
         profile_name = profile_name_for(snapshot.active_session.profile_id)
@@ -1071,10 +1316,26 @@ def OpenVPNMainWindow(application, services: ServiceContainer):  # noqa: N802
             stats_overview_body.set_label(_stats_body_for(snapshot))
             stats_duration_value.set_label(_format_duration(snapshot))
             stats_phase_value.set_label(snapshot.state.value.replace("_", " ").title())
+            stats_bytes_in_value.set_label(_format_bytes(_telemetry_value(telemetry_snapshot, "bytes_in")))
             stats_updated_value.set_label(_format_last_update(snapshot))
             stats_session_value.set_label(session_suffix)
+            stats_bytes_out_value.set_label(_format_bytes(_telemetry_value(telemetry_snapshot, "bytes_out")))
+            stats_rx_rate_value.set_label(_format_rate(_telemetry_rate(telemetry_snapshot, "rx")))
+            stats_tx_rate_value.set_label(_format_rate(_telemetry_rate(telemetry_snapshot, "tx")))
+            stats_latency_value.set_label(_format_latency(_telemetry_value(telemetry_snapshot, "latency_ms")))
+            stats_packets_in_value.set_label(_format_packets(_telemetry_value(telemetry_snapshot, "packets_in")))
+            stats_packets_out_value.set_label(_format_packets(_telemetry_value(telemetry_snapshot, "packets_out")))
+            stats_packet_age_value.set_label(_format_packet_age(telemetry_snapshot))
+            telemetry_cache["snapshot"] = telemetry_snapshot
+            telemetry_graph_detail.set_label(_telemetry_detail(telemetry_snapshot))
+            telemetry_graph.queue_draw()
 
-    def build_profile_card(profile, snapshot: SessionSnapshot) -> Gtk.Widget:
+    def build_profile_card(
+        profile,
+        snapshot: SessionSnapshot,
+        *,
+        proxy_names: dict[str, str],
+    ) -> Gtk.Widget:
         session_open_for_profile = (
             snapshot.active_session is not None
             and snapshot.active_session.profile_id == profile.id
@@ -1144,7 +1405,10 @@ def OpenVPNMainWindow(application, services: ServiceContainer):  # noqa: N802
                 snapshot.active_session.status_message or "Currently selected profile",
             ]
         else:
-            details = _inactive_profile_details(profile)
+            details = _inactive_profile_details(
+                profile,
+                proxy_name=proxy_names.get(profile.assigned_proxy_id or ""),
+            )
         meta_label = Gtk.Label(label="  •  ".join(details))
         meta_label.set_xalign(0)
         meta_label.set_wrap(True)
@@ -1183,6 +1447,19 @@ def OpenVPNMainWindow(application, services: ServiceContainer):  # noqa: N802
 
         catalog_snapshot = services.profile_catalog.list_profiles(search_entry.get_text())
         session_snapshot = services.session_lifecycle.snapshot()
+        telemetry_snapshot = None
+        if session_snapshot.active_session is not None:
+            try:
+                telemetry_snapshot = services.telemetry.snapshot(session_snapshot.active_session)
+            except Exception:
+                telemetry_snapshot = None
+        try:
+            proxy_names = {
+                proxy.id: proxy.name
+                for proxy in services.proxies.list_proxies()
+            }
+        except Exception:
+            proxy_names = {}
 
         if session_snapshot.state is SessionPhase.CONNECTED:
             status_label.set_label("CONNECTED")
@@ -1205,7 +1482,7 @@ def OpenVPNMainWindow(application, services: ServiceContainer):  # noqa: N802
             status_label.remove_css_class("status-disconnected")
             status_label.add_css_class("status-connected")
 
-        update_summary(session_snapshot)
+        update_summary(session_snapshot, telemetry_snapshot)
 
         if catalog_snapshot.profiles:
             empty_page.set_visible(False)
@@ -1221,7 +1498,13 @@ def OpenVPNMainWindow(application, services: ServiceContainer):  # noqa: N802
                 ),
             )
             for profile in ordered_profiles:
-                profiles_list.append(build_profile_card(profile, session_snapshot))
+                profiles_list.append(
+                    build_profile_card(
+                        profile,
+                        session_snapshot,
+                        proxy_names=proxy_names,
+                    )
+                )
         else:
             empty_page.set_visible(True)
 
@@ -1402,6 +1685,14 @@ def OpenVPNMainWindow(application, services: ServiceContainer):  # noqa: N802
             widgets=(reload_settings_button,),
         ),
     )
+    manage_proxies_button.connect(
+        "clicked",
+        lambda *_args: run_debounced_action(
+            "proxies-manage",
+            lambda: on_manage_proxies(),
+            widgets=(manage_proxies_button,),
+        ),
+    )
     protocol_combo.connect("changed", schedule_settings_save)
     timeout_spin.connect("value-changed", schedule_settings_save)
     launch_combo.connect("changed", schedule_settings_save)
@@ -1431,6 +1722,23 @@ def OpenVPNMainWindow(application, services: ServiceContainer):  # noqa: N802
         ),
     )
     window.connect("close-request", lambda *_args: (clear_session_watch(), False)[1])
+
+    def draw_telemetry_graph(_area, ctx, width: int, height: int) -> None:
+        snapshot = telemetry_cache.get("snapshot")
+        if not isinstance(snapshot, SessionTelemetrySnapshot):
+            return
+        points = _normalized_telemetry_history(snapshot.history)
+        if not points:
+            return
+
+        ctx.set_source_rgba(0.12, 0.16, 0.24, 0.18)
+        ctx.rectangle(0, 0, width, height)
+        ctx.fill()
+
+        _draw_rate_line(ctx, width, height, points, "rx")
+        _draw_rate_line(ctx, width, height, points, "tx")
+
+    telemetry_graph.set_draw_func(draw_telemetry_graph)
 
     GLib.timeout_add_seconds(1, periodic_refresh)
     try:
@@ -1617,6 +1925,134 @@ def _stats_body_for(snapshot: SessionSnapshot) -> str:
     return "Live session details are shown below."
 
 
+def _telemetry_value(
+    snapshot: SessionTelemetrySnapshot | None,
+    key: str,
+) -> int | float | None:
+    if snapshot is None:
+        return None
+    return getattr(snapshot.sample, key)
+
+
+def _telemetry_rate(
+    snapshot: SessionTelemetrySnapshot | None,
+    direction: str,
+) -> float | None:
+    if snapshot is None:
+        return None
+    return snapshot.rx_rate_bps if direction == "rx" else snapshot.tx_rate_bps
+
+
+def _format_bytes(value: int | float | None) -> str:
+    if value is None:
+        return "N/A"
+    amount = float(value)
+    unit = "B"
+    for candidate in ("KB", "MB", "GB", "TB"):
+        if amount < 1024:
+            break
+        amount /= 1024
+        unit = candidate
+    if unit == "B":
+        return f"{int(amount)} {unit}"
+    return f"{amount:.1f} {unit}"
+
+
+def _format_rate(value: float | None) -> str:
+    if value is None:
+        return "N/A"
+    return f"{_format_bytes(value)}/s"
+
+
+def _format_packets(value: int | None) -> str:
+    if value is None:
+        return "N/A"
+    return f"{value:,}"
+
+
+def _format_latency(value: float | None) -> str:
+    if value is None:
+        return "N/A"
+    if value < 10:
+        return f"{value:.1f} ms"
+    return f"{int(round(value))} ms"
+
+
+def _format_packet_age(snapshot: SessionTelemetrySnapshot | None) -> str:
+    if snapshot is None:
+        return "N/A"
+    times = [
+        item
+        for item in (
+            snapshot.sample.last_packet_received_at,
+            snapshot.sample.last_packet_sent_at,
+        )
+        if item is not None
+    ]
+    if not times:
+        return "N/A"
+    delta = datetime.now(timezone.utc) - max(times)
+    seconds = max(0, int(delta.total_seconds()))
+    if seconds < 2:
+        return "just now"
+    return f"{seconds}s ago"
+
+
+def _telemetry_detail(snapshot: SessionTelemetrySnapshot | None) -> str:
+    if snapshot is None:
+        return "Live telemetry is unavailable."
+    if snapshot.sample.available:
+        return "Rates are calculated from cumulative backend counters over recent refreshes."
+    return snapshot.sample.detail or "Live telemetry is unavailable."
+
+
+def _normalized_telemetry_history(
+    history: tuple[SessionTelemetryPoint, ...],
+) -> tuple[tuple[float, float], ...]:
+    if not history:
+        return ()
+    max_rate = max(
+        1.0,
+        max(
+            max(point.rx_rate_bps, point.tx_rate_bps)
+            for point in history
+        ),
+    )
+    return tuple(
+        (
+            min(1.0, point.rx_rate_bps / max_rate),
+            min(1.0, point.tx_rate_bps / max_rate),
+        )
+        for point in history
+    )
+
+
+def _draw_rate_line(
+    ctx,
+    width: int,
+    height: int,
+    points: tuple[tuple[float, float], ...],
+    direction: str,
+) -> None:
+    if not points:
+        return
+    index = 0 if direction == "rx" else 1
+    if direction == "rx":
+        ctx.set_source_rgba(0.14, 0.63, 0.42, 0.95)
+    else:
+        ctx.set_source_rgba(0.12, 0.44, 0.90, 0.95)
+    ctx.set_line_width(2.0)
+    denominator = max(1, len(points) - 1)
+    for offset, point in enumerate(points):
+        x = 8 + ((width - 16) * offset / denominator)
+        y = (height - 8) - ((height - 16) * point[index])
+        if offset == 0:
+            ctx.move_to(x, y)
+        else:
+            ctx.line_to(x, y)
+    ctx.stroke()
+
+
 def _subtitle_for_page(page_name: str) -> str:
     return {
         "profiles": "Profiles",
@@ -1668,7 +2104,11 @@ def _settings_signature(settings: AppSettings) -> tuple[tuple[str, object], ...]
     return tuple(sorted(settings.to_mapping().items()))
 
 
-def _inactive_profile_details(profile: Profile) -> list[str]:
+def _inactive_profile_details(
+    profile: Profile,
+    *,
+    proxy_name: str | None = None,
+) -> list[str]:
     details = []
     hostname = profile.metadata.get("server_hostname")
     username = profile.metadata.get("username")
@@ -1683,7 +2123,7 @@ def _inactive_profile_details(profile: Profile) -> list[str]:
         details.append(str(username))
     details.append(f"Source: {profile.source.value}")
     if profile.assigned_proxy_id:
-        details.append(f"Proxy: {profile.assigned_proxy_id}")
+        details.append(f"Proxy: {proxy_name or profile.assigned_proxy_id}")
     return details
 
 

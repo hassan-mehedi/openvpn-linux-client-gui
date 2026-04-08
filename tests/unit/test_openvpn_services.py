@@ -1,7 +1,15 @@
 from collections.abc import Callable
 from typing import Any
 
-from core.models import ImportSource, SessionPhase
+from core.models import (
+    AppSettings,
+    ConnectionProtocol,
+    ImportSource,
+    ProxyCredentials,
+    ProxyDefinition,
+    ProxyType,
+    SessionPhase,
+)
 from openvpn3.configuration_service import ConfigurationService
 from openvpn3.dbus_client import DBusClient
 from openvpn3.session_service import SessionService
@@ -119,6 +127,146 @@ def test_session_service_creates_and_tracks_sessions() -> None:
     assert session.state is SessionPhase.SESSION_CREATED
     assert prepared.state is SessionPhase.READY
     assert connected.state is SessionPhase.CONNECTED
+
+
+def test_configuration_service_applies_runtime_proxy_assignment() -> None:
+    transport = FakeTransport()
+    service = ConfigurationService(DBusClient(transport))
+    profile = service.list_profiles()[0]
+
+    service.apply_proxy_assignment(
+        profile.id,
+        ProxyDefinition(
+            id="proxy-1",
+            name="Office",
+            type=ProxyType.HTTP,
+            host="proxy.example.com",
+            port=8080,
+        ),
+        ProxyCredentials(username="alice", password="secret"),
+    )
+
+    calls = [
+        (call["method"], call["params"])
+        for call in transport.calls
+        if call["method"] in {"SetOverride", "UnsetOverride"}
+    ]
+    assert calls[-5:] == [
+        ("SetOverride", ("proxy-host", "proxy.example.com")),
+        ("SetOverride", ("proxy-port", 8080)),
+        ("SetOverride", ("proxy-username", "alice")),
+        ("SetOverride", ("proxy-password", "secret")),
+        ("SetOverride", ("proxy-auth-cleartext", True)),
+    ]
+
+
+def test_configuration_service_clears_proxy_assignment() -> None:
+    transport = FakeTransport()
+    service = ConfigurationService(DBusClient(transport))
+    profile = service.list_profiles()[0]
+
+    service.apply_proxy_assignment(profile.id, None, None)
+
+    calls = [
+        (call["method"], call["params"])
+        for call in transport.calls
+        if call["method"] == "UnsetOverride"
+    ]
+    assert calls[-5:] == [
+        ("UnsetOverride", ("proxy-host",)),
+        ("UnsetOverride", ("proxy-port",)),
+        ("UnsetOverride", ("proxy-username",)),
+        ("UnsetOverride", ("proxy-password",)),
+        ("UnsetOverride", ("proxy-auth-cleartext",)),
+    ]
+
+
+def test_configuration_service_applies_supported_runtime_settings() -> None:
+    transport = FakeTransport()
+    service = ConfigurationService(DBusClient(transport))
+    profile = service.list_profiles()[0]
+
+    service.apply_connection_settings(
+        profile.id,
+        AppSettings(
+            protocol=ConnectionProtocol.TCP,
+            google_dns_fallback=True,
+            dco=True,
+        ),
+    )
+
+    calls = [
+        (call["method"], call["params"])
+        for call in transport.calls
+        if call["method"] in {"SetOverride", "Set"}
+    ]
+    assert calls[-3:] == [
+        ("SetOverride", ("proto-override", "tcp")),
+        ("SetOverride", ("dns-fallback-google", True)),
+        ("Set", ("net.openvpn.v3.configuration", "dco", True)),
+    ]
+
+
+def test_session_service_maps_best_effort_telemetry_properties() -> None:
+    transport = FakeTransport()
+    transport.session_props["/net/openvpn/v3/sessions/session1"].update(
+        {
+            "bytes_received": 4096,
+            "bytes_sent": 2048,
+            "packets_received": 64,
+            "packets_sent": 48,
+            "latency_ms": 25.0,
+        }
+    )
+    configuration = ConfigurationService(DBusClient(transport))
+    session_service = SessionService(
+        DBusClient(transport),
+        profile_resolver=lambda _profile_id: "/net/openvpn/v3/configuration/profile1",
+        profile_id_from_path=configuration.resolve_profile_id,
+    )
+
+    session = session_service.create_session("profile-1")
+    telemetry = session_service.get_session_telemetry(session.id)
+
+    assert telemetry.available is True
+    assert telemetry.bytes_in == 4096
+    assert telemetry.bytes_out == 2048
+    assert telemetry.packets_in == 64
+    assert telemetry.packets_out == 48
+    assert telemetry.latency_ms == 25.0
+
+
+def test_session_service_maps_statistics_dictionary_telemetry() -> None:
+    transport = FakeTransport()
+    transport.session_props["/net/openvpn/v3/sessions/session1"]["statistics"] = {
+        "BYTES_IN": 32267,
+        "BYTES_OUT": 83816,
+        "PACKETS_IN": 726,
+        "PACKETS_OUT": 1087,
+        "TUN_BYTES_IN": 42818,
+        "TUN_BYTES_OUT": 96,
+        "TUN_PACKETS_IN": 426,
+        "TUN_PACKETS_OUT": 2,
+    }
+    configuration = ConfigurationService(DBusClient(transport))
+    session_service = SessionService(
+        DBusClient(transport),
+        profile_resolver=lambda _profile_id: "/net/openvpn/v3/configuration/profile1",
+        profile_id_from_path=configuration.resolve_profile_id,
+    )
+
+    session = session_service.create_session("profile-1")
+    telemetry = session_service.get_session_telemetry(session.id)
+
+    assert telemetry.available is True
+    assert telemetry.bytes_in == 32267
+    assert telemetry.bytes_out == 83816
+    assert telemetry.packets_in == 726
+    assert telemetry.packets_out == 1087
+    assert (
+        telemetry.detail
+        == "Traffic counters are available from the backend. Latency and packet-age timestamps are not exposed for this session."
+    )
 
 
 def test_dbus_client_retries_activation_race() -> None:

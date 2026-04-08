@@ -2,11 +2,12 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Callable, Protocol
 
 from core.events import SessionEvent
 from core.models import AttentionRequest, SessionDescriptor, SessionPhase
+from core.secrets import saved_password_request_id
 from core.state_machine import SessionStateMachine
 
 
@@ -54,6 +55,16 @@ class AttentionBackend(Protocol):
         """Submit input for a challenge field."""
 
 
+class ProfileCredentialBackend(Protocol):
+    def load_password(self, profile_id: str) -> str | None:
+        """Load a saved password for a profile."""
+
+
+class ConnectionPreparationBackend(Protocol):
+    def prepare_profile(self, profile_id: str) -> None:
+        """Apply runtime profile settings before session creation."""
+
+
 @dataclass(slots=True, frozen=True)
 class SessionSnapshot:
     state: SessionPhase
@@ -71,13 +82,18 @@ class SessionLifecycleService:
         session_backend: SessionBackend,
         attention_backend: AttentionBackend,
         *,
+        profile_credentials: ProfileCredentialBackend | None = None,
+        connection_preparation: ConnectionPreparationBackend | None = None,
         state_machine: SessionStateMachine | None = None,
     ) -> None:
         self._session_backend = session_backend
         self._attention_backend = attention_backend
+        self._profile_credentials = profile_credentials
+        self._connection_preparation = connection_preparation
         self._state_machine = state_machine or SessionStateMachine()
         self._active_session: SessionDescriptor | None = None
         self._attention_requests: tuple[AttentionRequest, ...] = ()
+        self._auto_submitted_saved_fields: set[tuple[str, str]] = set()
 
     def snapshot(self) -> SessionSnapshot:
         return SessionSnapshot(
@@ -97,26 +113,34 @@ class SessionLifecycleService:
         return self.snapshot()
 
     def prepare_connection(self, profile_id: str) -> SessionSnapshot:
+        if self._state_machine.state is SessionPhase.ERROR:
+            self._state_machine.apply(SessionEvent.RESET)
+            self._active_session = None
+            self._attention_requests = ()
+            self._auto_submitted_saved_fields.clear()
         self.select_profile(profile_id)
+        try:
+            if self._connection_preparation is not None:
+                self._connection_preparation.prepare_profile(profile_id)
+        except Exception as exc:
+            self._state_machine.apply(SessionEvent.FAIL, reason=str(exc))
+            raise
         try:
             session = self._session_backend.create_session(profile_id)
         except Exception as exc:
             restored = self.restore_existing_session(profile_id)
             if restored.active_session is not None:
                 return restored
+            self._state_machine.apply(SessionEvent.FAIL, reason=str(exc))
             raise exc
         self._active_session = session
+        self._auto_submitted_saved_fields.clear()
         self._state_machine.apply(
             SessionEvent.CREATE_SESSION,
             session_id=session.id,
         )
         prepared = self._session_backend.prepare_session(session.id)
-        self._active_session = prepared
-        self._attention_requests = self._collect_attention(prepared)
-        if self._attention_requests:
-            self._state_machine.apply(SessionEvent.REQUIRE_INPUT)
-        else:
-            self._mark_ready_if_needed()
+        self._apply_backend_session(prepared)
         return self.snapshot()
 
     def connect(self, profile_id: str | None = None) -> SessionSnapshot:
@@ -282,11 +306,17 @@ class SessionLifecycleService:
             self._state_machine.apply(SessionEvent.MARK_READY)
 
     def _apply_backend_session(self, session: SessionDescriptor) -> None:
+        previous_session_id = self._active_session.id if self._active_session is not None else None
         self._active_session = session
-        self._attention_requests = self._collect_attention(session)
+        if previous_session_id != session.id:
+            self._auto_submitted_saved_fields.clear()
+        self._attention_requests = self._prefill_saved_password(self._collect_attention(session))
         self._sync_state(session)
         if self._state_machine.state is SessionPhase.IDLE:
             self._attention_requests = ()
+            self._auto_submitted_saved_fields.clear()
+            return
+        self._maybe_apply_saved_password()
 
     def _sync_state(self, session: SessionDescriptor) -> None:
         current = self._state_machine.state
@@ -345,3 +375,49 @@ class SessionLifecycleService:
             if current is not SessionPhase.DISCONNECTING:
                 self._state_machine.apply(SessionEvent.REQUEST_DISCONNECT)
             self._state_machine.apply(SessionEvent.MARK_DISCONNECTED)
+
+    def _prefill_saved_password(
+        self,
+        requests: tuple[AttentionRequest, ...],
+    ) -> tuple[AttentionRequest, ...]:
+        if self._active_session is None or self._profile_credentials is None:
+            return requests
+        field_id = saved_password_request_id(requests)
+        if field_id is None:
+            return requests
+        if (self._active_session.id, field_id) in self._auto_submitted_saved_fields:
+            return requests
+        saved_password = self._profile_credentials.load_password(self._active_session.profile_id)
+        if not saved_password:
+            return requests
+        return tuple(
+            replace(request, value=saved_password)
+            if request.field_id == field_id
+            else request
+            for request in requests
+        )
+
+    def _maybe_apply_saved_password(self) -> bool:
+        if self._active_session is None or not self._attention_requests:
+            return False
+        field_id = saved_password_request_id(self._attention_requests)
+        if field_id is None:
+            return False
+        if (self._active_session.id, field_id) in self._auto_submitted_saved_fields:
+            return False
+        request = next(
+            (item for item in self._attention_requests if item.field_id == field_id),
+            None,
+        )
+        if request is None or not request.value:
+            return False
+
+        self._attention_backend.provide_user_input(
+            self._active_session.id,
+            field_id,
+            request.value,
+        )
+        self._auto_submitted_saved_fields.add((self._active_session.id, field_id))
+        prepared = self._session_backend.prepare_session(self._active_session.id)
+        self._apply_backend_session(prepared)
+        return True

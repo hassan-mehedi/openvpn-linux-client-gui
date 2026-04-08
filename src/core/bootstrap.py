@@ -5,12 +5,14 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from core.catalog import ProfileCatalogService
+from core.connection_preparation import ConnectionPreparationService
 from core.diagnostics import DiagnosticsService
 from core.onboarding import OnboardingService
 from core.proxies import ProxyService
-from core.secrets import UnavailableSecretStore
+from core.secrets import ProfileSecretsService, create_secret_store
 from core.session_manager import SessionLifecycleService
 from core.settings import SettingsService
+from core.telemetry import SessionTelemetryService
 from openvpn3.attention_service import AttentionService
 from openvpn3.backend_service import BackendService
 from openvpn3.configuration_service import ConfigurationService
@@ -39,6 +41,8 @@ class ServiceContainer:
     onboarding: OnboardingService
     settings: SettingsService
     proxies: ProxyService
+    profile_secrets: ProfileSecretsService
+    telemetry: SessionTelemetryService
     diagnostics: DiagnosticsService
     profile_catalog: ProfileCatalogService
     session_lifecycle: SessionLifecycleService
@@ -58,14 +62,32 @@ def build_live_services() -> ServiceContainer:
     netcfg = NetCfgService(client)
     onboarding = OnboardingService(configuration)
     settings = SettingsService()
-    proxies = ProxyService(UnavailableSecretStore())
+    secret_store = create_secret_store()
+    proxies = ProxyService(secret_store)
+    profile_secrets = ProfileSecretsService(secret_store)
+    telemetry = SessionTelemetryService(session)
     diagnostics = DiagnosticsService(
         reachability_probe=backend,
         capability_probe=netcfg,
         log_source=_DiagnosticLogSource(log),
     )
-    profile_catalog = ProfileCatalogService(configuration, onboarding)
-    session_lifecycle = SessionLifecycleService(session, attention)
+    profile_catalog = ProfileCatalogService(
+        configuration,
+        onboarding,
+        proxy_backend=proxies,
+    )
+    connection_preparation = ConnectionPreparationService(
+        settings,
+        profile_catalog,
+        proxies,
+        configuration,
+    )
+    session_lifecycle = SessionLifecycleService(
+        session,
+        attention,
+        profile_credentials=profile_secrets,
+        connection_preparation=connection_preparation,
+    )
     return ServiceContainer(
         configuration=configuration,
         session=session,
@@ -76,6 +98,8 @@ def build_live_services() -> ServiceContainer:
         onboarding=onboarding,
         settings=settings,
         proxies=proxies,
+        profile_secrets=profile_secrets,
+        telemetry=telemetry,
         diagnostics=diagnostics,
         profile_catalog=profile_catalog,
         session_lifecycle=session_lifecycle,

@@ -2,15 +2,23 @@
 
 from __future__ import annotations
 
+from datetime import datetime, timezone
 from pathlib import Path
+from typing import Any
 from urllib.parse import urlsplit
 from urllib.request import urlopen
-from datetime import datetime, timezone
-from typing import Any
 
-from core.models import ImportSource, Profile
+from core.models import (
+    AppSettings,
+    ConnectionProtocol,
+    ImportSource,
+    Profile,
+    ProxyCredentials,
+    ProxyDefinition,
+)
 from openvpn3.dbus_client import (
     CONFIGURATION_SERVICE_NAME,
+    DBUS_PROPERTIES_INTERFACE,
     DBusClient,
     opaque_identifier,
 )
@@ -18,6 +26,13 @@ from openvpn3.dbus_client import (
 
 CONFIGURATION_INTERFACE = "net.openvpn.v3.configuration"
 CONFIGURATION_MANAGER_PATH = "/net/openvpn/v3/configuration"
+_PROXY_OVERRIDE_KEYS = (
+    "proxy-host",
+    "proxy-port",
+    "proxy-username",
+    "proxy-password",
+    "proxy-auth-cleartext",
+)
 
 
 class ConfigurationService:
@@ -74,6 +89,77 @@ class ConfigurationService:
         )
         self._profile_paths.pop(profile_id, None)
         self._profile_ids_by_path.pop(profile_path, None)
+
+    def apply_connection_settings(self, profile_id: str, settings: AppSettings) -> None:
+        if settings.protocol is ConnectionProtocol.AUTO:
+            self.unset_override(profile_id, "proto-override")
+        else:
+            self.set_override(profile_id, "proto-override", settings.protocol.value)
+        self.set_override(
+            profile_id,
+            "dns-fallback-google",
+            settings.google_dns_fallback,
+        )
+        self.set_property(profile_id, "dco", settings.dco)
+
+    def apply_proxy_assignment(
+        self,
+        profile_id: str,
+        proxy: ProxyDefinition | None,
+        credentials: ProxyCredentials | None,
+    ) -> None:
+        if proxy is None:
+            self.clear_proxy_assignment(profile_id)
+            return
+
+        self.set_override(profile_id, "proxy-host", proxy.host)
+        self.set_override(profile_id, "proxy-port", proxy.port)
+        if credentials is None:
+            self.unset_override(profile_id, "proxy-username")
+            self.unset_override(profile_id, "proxy-password")
+            self.unset_override(profile_id, "proxy-auth-cleartext")
+            return
+
+        self.set_override(profile_id, "proxy-username", credentials.username)
+        self.set_override(profile_id, "proxy-password", credentials.password)
+        self.set_override(profile_id, "proxy-auth-cleartext", True)
+
+    def clear_proxy_assignment(self, profile_id: str) -> None:
+        for key in _PROXY_OVERRIDE_KEYS:
+            self.unset_override(profile_id, key)
+
+    def set_override(self, profile_id: str, name: str, value: Any) -> None:
+        profile_path = self.resolve_object_path(profile_id)
+        self._client.call_method(
+            service=CONFIGURATION_SERVICE_NAME,
+            object_path=profile_path,
+            interface=CONFIGURATION_INTERFACE,
+            method="SetOverride",
+            signature="sv",
+            params=(name, value),
+        )
+
+    def unset_override(self, profile_id: str, name: str) -> None:
+        profile_path = self.resolve_object_path(profile_id)
+        self._client.call_method(
+            service=CONFIGURATION_SERVICE_NAME,
+            object_path=profile_path,
+            interface=CONFIGURATION_INTERFACE,
+            method="UnsetOverride",
+            signature="s",
+            params=(name,),
+        )
+
+    def set_property(self, profile_id: str, name: str, value: Any) -> None:
+        profile_path = self.resolve_object_path(profile_id)
+        self._client.call_method(
+            service=CONFIGURATION_SERVICE_NAME,
+            object_path=profile_path,
+            interface=DBUS_PROPERTIES_INTERFACE,
+            method="Set",
+            signature="ssv",
+            params=(CONFIGURATION_INTERFACE, name, value),
+        )
 
     def resolve_object_path(self, profile_id: str) -> str:
         try:

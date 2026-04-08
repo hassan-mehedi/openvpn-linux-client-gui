@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections.abc import Callable
 import re
 
-from core.models import Profile
+from core.models import Profile, ProxyDefinition, SavedCredentialState
 
 
 try:
@@ -30,8 +30,11 @@ def present_profile_details_dialog(
     parent,
     *,
     profile: Profile,
-    on_save: Callable[[str], None],
-    on_connect: Callable[[str], None],
+    proxies: tuple[ProxyDefinition, ...],
+    credential_state: SavedCredentialState,
+    secure_storage_available: bool,
+    on_save: Callable[[str, str | None, bool], None],
+    on_connect: Callable[[str, str | None, bool], None],
     on_delete: Callable[[], None],
 ) -> None:
     if Gtk is None or GLib is None:
@@ -105,13 +108,44 @@ def present_profile_details_dialog(
         2,
     )
 
+    proxy_label = Gtk.Label(label="Assigned Proxy")
+    proxy_label.set_xalign(0)
+    proxy_label.add_css_class("dialog-field-label")
+    proxy_combo = Gtk.ComboBoxText()
+    proxy_combo.add_css_class("dialog-entry")
+    proxy_combo.append("", "No proxy")
+    for proxy in proxies:
+        proxy_combo.append(proxy.id, _proxy_option_label(proxy))
+    if profile.assigned_proxy_id and not any(item.id == profile.assigned_proxy_id for item in proxies):
+        proxy_combo.append(profile.assigned_proxy_id, f"Missing proxy ({profile.assigned_proxy_id})")
+    proxy_combo.set_active_id(profile.assigned_proxy_id or "")
+    grid.attach(proxy_label, 0, 6, 1, 1)
+    grid.attach(proxy_combo, 0, 7, 1, 1)
+
+    proxy_hint = Gtk.Label(
+        label=(
+            "This assignment is stored per profile and reused by the desktop UI and companion CLI."
+            if proxies
+            else "No saved proxies are available yet. Create them from Settings."
+        )
+    )
+    proxy_hint.set_xalign(0)
+    proxy_hint.set_wrap(True)
+    proxy_hint.add_css_class("dialog-note")
+    box.append(proxy_hint)
+
     save_password = Gtk.CheckButton(label="Save password")
-    save_password.set_sensitive(False)
+    save_password.set_active(credential_state.password_saved)
+    save_password.set_sensitive(secure_storage_available or credential_state.password_saved)
     save_password.add_css_class("dialog-check")
     box.append(save_password)
 
     save_password_hint = Gtk.Label(
-        label="Secure password storage is not configured yet on this build."
+        label=_password_hint_text(
+            password_saved=credential_state.password_saved,
+            save_password_requested=credential_state.password_saved,
+            secure_storage_available=secure_storage_available,
+        )
     )
     save_password_hint.set_xalign(0)
     save_password_hint.set_wrap(True)
@@ -127,24 +161,34 @@ def present_profile_details_dialog(
 
     save_source_id: int | None = None
     last_saved_name = _normalize_profile_name(details["profile_name"] or profile.name)
+    last_saved_proxy_id = _normalize_proxy_id(profile.assigned_proxy_id)
+    last_saved_password_state = credential_state.password_saved
 
     def save_profile_name_if_needed() -> bool:
-        nonlocal save_source_id, last_saved_name
+        nonlocal save_source_id, last_saved_name, last_saved_proxy_id, last_saved_password_state
         save_source_id = None
         profile_name = _normalize_profile_name(profile_name_entry.get_text())
+        assigned_proxy_id = _normalize_proxy_id(proxy_combo.get_active_id())
+        save_password_requested = save_password.get_active()
         if not profile_name:
             error_label.set_label("Profile name cannot be empty.")
             error_label.set_visible(True)
             return False
-        if profile_name == last_saved_name:
+        if (
+            profile_name == last_saved_name
+            and assigned_proxy_id == last_saved_proxy_id
+            and save_password_requested == last_saved_password_state
+        ):
             return True
         try:
-            on_save(profile_name)
+            on_save(profile_name, assigned_proxy_id, save_password_requested)
         except Exception as exc:
             error_label.set_label(str(exc))
             error_label.set_visible(True)
             return False
         last_saved_name = profile_name
+        last_saved_proxy_id = assigned_proxy_id
+        last_saved_password_state = save_password_requested
         error_label.set_visible(False)
         return True
 
@@ -159,6 +203,19 @@ def present_profile_details_dialog(
         )
 
     profile_name_entry.connect("changed", schedule_profile_save)
+    proxy_combo.connect("changed", schedule_profile_save)
+
+    def refresh_save_password_hint(*_args) -> None:
+        save_password_hint.set_label(
+            _password_hint_text(
+                password_saved=credential_state.password_saved,
+                save_password_requested=save_password.get_active(),
+                secure_storage_available=secure_storage_available,
+            )
+        )
+        schedule_profile_save()
+
+    save_password.connect("toggled", refresh_save_password_hint)
 
     def on_response(_dialog: Gtk.Dialog, response_id: int) -> None:
         nonlocal save_source_id
@@ -186,7 +243,11 @@ def present_profile_details_dialog(
         profile_name = _normalize_profile_name(profile_name_entry.get_text())
         if not profile_name:
             return
-        on_connect(profile_name)
+        on_connect(
+            profile_name,
+            _normalize_proxy_id(proxy_combo.get_active_id()),
+            save_password.get_active(),
+        )
         dialog.destroy()
 
     dialog.connect("response", on_response)
@@ -215,6 +276,34 @@ def _configure_icon_action_button(button, *, icon_name: str, tooltip: str, css_c
 
 def _normalize_profile_name(value: str) -> str:
     return value.strip()
+
+
+def _normalize_proxy_id(value: str | None) -> str | None:
+    if value is None:
+        return None
+    normalized = value.strip()
+    return normalized or None
+
+
+def _proxy_option_label(proxy: ProxyDefinition) -> str:
+    return f"{proxy.name} ({proxy.type.value.upper()} {proxy.host}:{proxy.port})"
+
+
+def _password_hint_text(
+    *,
+    password_saved: bool,
+    save_password_requested: bool,
+    secure_storage_available: bool,
+) -> str:
+    if password_saved and save_password_requested:
+        return "A password is already stored securely for this profile."
+    if password_saved and not save_password_requested:
+        return "Uncheck this to remove the saved password for this profile."
+    if not secure_storage_available:
+        return "Secure password storage is unavailable on this machine."
+    if save_password_requested:
+        return "If authentication is required, the password will be stored securely after a successful prompt."
+    return "You can enable this now and save the password the next time authentication is required."
 
 
 def _resolve_profile_details(profile: Profile) -> dict[str, str | None]:
