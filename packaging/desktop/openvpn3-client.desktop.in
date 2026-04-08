@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=OpenVPN 3 Linux
+Exec=ovpn3-linux-gui
+Categories=Network;
+MimeType=application/x-openvpn-profile;x-scheme-handler/openvpn;
+Icon=network-vpn
+

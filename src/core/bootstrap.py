@@ -1,0 +1,82 @@
+"""Shared live service construction."""
+
+from __future__ import annotations
+
+from dataclasses import dataclass
+
+from core.catalog import ProfileCatalogService
+from core.diagnostics import DiagnosticsService
+from core.onboarding import OnboardingService
+from core.proxies import ProxyService
+from core.secrets import UnavailableSecretStore
+from core.session_manager import SessionLifecycleService
+from core.settings import SettingsService
+from openvpn3.attention_service import AttentionService
+from openvpn3.backend_service import BackendService
+from openvpn3.configuration_service import ConfigurationService
+from openvpn3.dbus_client import DBusClient, create_default_transport
+from openvpn3.log_service import LogService
+from openvpn3.netcfg_service import NetCfgService
+from openvpn3.session_service import SessionService
+
+
+class _DiagnosticLogSource:
+    def __init__(self, log_service: LogService) -> None:
+        self._log_service = log_service
+
+    def recent_logs(self, limit: int = 200) -> tuple[str, ...]:
+        return self._log_service.recent_logs(limit=limit)
+
+
+@dataclass(slots=True)
+class ServiceContainer:
+    configuration: ConfigurationService
+    session: SessionService
+    attention: AttentionService
+    log: LogService
+    backend: BackendService
+    netcfg: NetCfgService
+    onboarding: OnboardingService
+    settings: SettingsService
+    proxies: ProxyService
+    diagnostics: DiagnosticsService
+    profile_catalog: ProfileCatalogService
+    session_lifecycle: SessionLifecycleService
+
+
+def build_live_services() -> ServiceContainer:
+    client = DBusClient(create_default_transport())
+    configuration = ConfigurationService(client)
+    session = SessionService(
+        client,
+        profile_resolver=configuration.resolve_object_path,
+        profile_id_from_path=configuration.resolve_profile_id,
+    )
+    attention = AttentionService(client, session_resolver=session.resolve_object_path)
+    log = LogService(client, session_resolver=session.resolve_object_path)
+    backend = BackendService(client)
+    netcfg = NetCfgService(client)
+    onboarding = OnboardingService(configuration)
+    settings = SettingsService()
+    proxies = ProxyService(UnavailableSecretStore())
+    diagnostics = DiagnosticsService(
+        reachability_probe=backend,
+        capability_probe=netcfg,
+        log_source=_DiagnosticLogSource(log),
+    )
+    profile_catalog = ProfileCatalogService(configuration, onboarding)
+    session_lifecycle = SessionLifecycleService(session, attention)
+    return ServiceContainer(
+        configuration=configuration,
+        session=session,
+        attention=attention,
+        log=log,
+        backend=backend,
+        netcfg=netcfg,
+        onboarding=onboarding,
+        settings=settings,
+        proxies=proxies,
+        diagnostics=diagnostics,
+        profile_catalog=profile_catalog,
+        session_lifecycle=session_lifecycle,
+    )
