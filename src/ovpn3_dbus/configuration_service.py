@@ -18,7 +18,7 @@ from core.models import (
     ProxyDefinition,
     SecurityLevel,
 )
-from openvpn3.dbus_client import (
+from ovpn3_dbus.dbus_client import (
     CONFIGURATION_SERVICE_NAME,
     DBUS_PROPERTIES_INTERFACE,
     DBusClient,

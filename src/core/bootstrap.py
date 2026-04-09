@@ -15,14 +15,14 @@ from core.secrets import ProfileSecretsService, create_secret_store
 from core.session_manager import SessionLifecycleService
 from core.settings import SettingsService
 from core.telemetry import SessionTelemetryService
-from openvpn3.attention_service import AttentionService
-from openvpn3.backend_service import BackendService
-from openvpn3.configuration_service import ConfigurationService
-from openvpn3.dbus_client import DBusClient, create_default_transport
-from openvpn3.introspection_service import IntrospectionService
-from openvpn3.log_service import LogService
-from openvpn3.netcfg_service import NetCfgService
-from openvpn3.session_service import SessionService
+from ovpn3_dbus.attention_service import AttentionService
+from ovpn3_dbus.backend_service import BackendService
+from ovpn3_dbus.configuration_service import ConfigurationService
+from ovpn3_dbus.dbus_client import DBusClient, create_default_transport
+from ovpn3_dbus.introspection_service import IntrospectionService
+from ovpn3_dbus.log_service import LogService
+from ovpn3_dbus.netcfg_service import NetCfgService
+from ovpn3_dbus.session_service import SessionService
 
 
 class _DiagnosticLogSource:

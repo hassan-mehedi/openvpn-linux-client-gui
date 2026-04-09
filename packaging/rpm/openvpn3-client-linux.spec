@@ -36,7 +36,7 @@ launcher, MIME, and URI handling.
 
 %install
 %pyproject_install
-%pyproject_save_files app cli core openvpn3
+%pyproject_save_files app cli core ovpn3_dbus
 python3 packaging/scripts/install_shared_assets.py --destdir %{buildroot} --prefix %{_prefix}
 
 %post

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from openvpn3.dbus_client import (
+from ovpn3_dbus.dbus_client import (
     BACKEND_SERVICE_NAME,
     CONFIGURATION_SERVICE_NAME,
     DBusClient,

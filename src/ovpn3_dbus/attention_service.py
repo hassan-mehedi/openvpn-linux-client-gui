@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import Any, Callable
 
 from core.models import AttentionFieldType, AttentionRequest
-from openvpn3.dbus_client import DBusClient, SESSION_SERVICE_NAME
+from ovpn3_dbus.dbus_client import DBusClient, SESSION_SERVICE_NAME
 
 
 ATTENTION_INTERFACE = "net.openvpn.v3.attention"

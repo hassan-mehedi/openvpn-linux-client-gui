@@ -7,7 +7,7 @@ from shutil import which
 from typing import Callable
 
 from core.models import CapabilityState
-from openvpn3.dbus_client import DBusClient
+from ovpn3_dbus.dbus_client import DBusClient
 
 
 NETCFG_INTERFACE = "net.openvpn.v3.netcfg"

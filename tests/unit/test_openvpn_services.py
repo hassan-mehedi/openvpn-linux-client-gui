@@ -14,14 +14,14 @@ from core.models import (
     SecurityLevel,
     SessionPhase,
 )
-from openvpn3.configuration_service import (
+from ovpn3_dbus.configuration_service import (
     ConfigurationService,
     UnsupportedConnectionSettingsError,
 )
-from openvpn3.dbus_client import DBusClient
-from openvpn3.introspection_service import IntrospectionService
-from openvpn3.log_service import LogService
-from openvpn3.session_service import SessionService
+from ovpn3_dbus.dbus_client import DBusClient
+from ovpn3_dbus.introspection_service import IntrospectionService
+from ovpn3_dbus.log_service import LogService
+from ovpn3_dbus.session_service import SessionService
 
 
 class FakeDBusException(Exception):

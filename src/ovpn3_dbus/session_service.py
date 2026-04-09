@@ -6,7 +6,7 @@ from datetime import datetime, timezone
 from typing import Any, Callable
 
 from core.models import SessionDescriptor, SessionPhase, SessionTelemetrySample
-from openvpn3.dbus_client import (
+from ovpn3_dbus.dbus_client import (
     SESSION_SERVICE_NAME,
     DBusClient,
     opaque_identifier,

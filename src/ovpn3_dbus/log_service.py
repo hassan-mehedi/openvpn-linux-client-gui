@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections import deque
 from typing import Callable
 
-from openvpn3.dbus_client import DBusClient, SESSION_SERVICE_NAME
+from ovpn3_dbus.dbus_client import DBusClient, SESSION_SERVICE_NAME
 
 
 LOG_INTERFACE = "net.openvpn.v3.log"

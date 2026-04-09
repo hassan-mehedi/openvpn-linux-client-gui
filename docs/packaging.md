@@ -92,6 +92,7 @@ mkdir -p ~/rpmbuild/{BUILD,BUILDROOT,RPMS,SOURCES,SPECS,SRPMS}
 python3 -m build --sdist --no-isolation
 cp dist/openvpn3_client_linux-0.1.0.tar.gz ~/rpmbuild/SOURCES/
 rpmbuild -ba packaging/rpm/openvpn3-client-linux.spec
+sudo rpm -i ~/rpmbuild/RPMS/noarch/openvpn3-client-linux-0.1.0-1.*.noarch.rpm
 ```
 
 Both packaging flows rely on the shared asset helper to stage:

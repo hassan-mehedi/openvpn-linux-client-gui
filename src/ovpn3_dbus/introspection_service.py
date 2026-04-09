@@ -8,7 +8,7 @@ from typing import Callable
 from xml.etree import ElementTree
 
 from core.models import DBusInterfaceValidation, DBusValidationReport, DiagnosticStatus
-from openvpn3.dbus_client import (
+from ovpn3_dbus.dbus_client import (
     BACKEND_SERVICE_NAME,
     CONFIGURATION_SERVICE_NAME,
     LOG_SERVICE_NAME,

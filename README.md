@@ -62,13 +62,23 @@ dpkg-buildpackage -us -uc -b
 sudo dpkg -i ../openvpn3-client-linux_0.1.0_all.deb
 ```
 
-### RPM package
+### RPM package (Fedora)
 
 ```bash
+# Install build dependencies
+sudo dnf install python3-build rpm-build pyproject-rpm-macros python3-devel python3-setuptools python3-wheel
+
+# Build
+mkdir -p ~/rpmbuild/{BUILD,BUILDROOT,RPMS,SOURCES,SPECS,SRPMS}
 python3 -m build --sdist --no-isolation
 cp dist/openvpn3_client_linux-0.1.0.tar.gz ~/rpmbuild/SOURCES/
 rpmbuild -ba packaging/rpm/openvpn3-client-linux.spec
-sudo rpm -i ~/rpmbuild/RPMS/noarch/openvpn3-client-linux-0.1.0-1.noarch.rpm
+
+# Install (first time)
+sudo rpm -i ~/rpmbuild/RPMS/noarch/openvpn3-client-linux-0.1.0-1.*.noarch.rpm
+
+# Reinstall (if already installed)
+sudo rpm -e openvpn3-client-linux && sudo rpm -i ~/rpmbuild/RPMS/noarch/openvpn3-client-linux-0.1.0-1.*.noarch.rpm
 ```
 
 ## Usage
