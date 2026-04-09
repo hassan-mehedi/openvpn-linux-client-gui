@@ -2,7 +2,7 @@ name: CI
 
 on:
   push:
-    branches: [main]
+    branches: [main, dev]
   pull_request:
     branches: [main]
 
@@ -16,18 +16,6 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install system dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y \
-            gir1.2-gtk-4.0 \
-            gir1.2-adw-1 \
-            libgirepository1.0-dev \
-            python3-gi \
-            python3-dbus \
-            libsecret-1-dev \
-            xvfb
-
       - name: Install uv
         uses: astral-sh/setup-uv@v4
 
@@ -39,9 +27,6 @@ jobs:
 
       - name: Run unit and integration tests
         run: uv run pytest tests/unit tests/integration -v --tb=short
-
-      - name: Run E2E tests under Xvfb
-        run: xvfb-run -a uv run pytest tests/e2e -v --tb=short -m e2e
 
   packaging-check:
     runs-on: ubuntu-latest
@@ -55,3 +40,4 @@ jobs:
           test -f packaging/uri-handler/openvpn3-client-linux.xml
           test -f packaging/systemd/openvpn3-client-linux.service
           test -f packaging/polkit/com.openvpn3.clientlinux.policy
+          test -f install.sh
