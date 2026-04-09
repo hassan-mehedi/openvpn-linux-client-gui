@@ -21,6 +21,8 @@ from core.bootstrap import ServiceContainer
 from core.models import (
     AppSettings,
     CapabilityState,
+    DiagnosticCheck,
+    DiagnosticStatus,
     ConnectionProtocol,
     ImportPreview,
     ImportSource,
@@ -267,6 +269,7 @@ def OpenVPNMainWindow(application, services: ServiceContainer):  # noqa: N802
 
     fab_button = Gtk.MenuButton(icon_name="list-add-symbolic")
     fab_button.add_css_class("fab-button")
+    fab_button.set_tooltip_text("Import profile")
     fab_button.set_halign(Gtk.Align.END)
     fab_button.set_valign(Gtk.Align.END)
     fab_button.set_margin_bottom(28)
@@ -316,7 +319,7 @@ def OpenVPNMainWindow(application, services: ServiceContainer):  # noqa: N802
     connection_body.append(
         _build_setting_row(
             "Connection timeout",
-            "Seconds to wait before the client treats the connection attempt as failed.",
+            "Seconds to allow active connect or reconnect progress before the app aborts the attempt.",
             timeout_spin,
         )
     )
@@ -399,7 +402,7 @@ def OpenVPNMainWindow(application, services: ServiceContainer):  # noqa: N802
     security_body.append(
         _build_setting_row(
             "Security level",
-            "Higher levels allow stricter defaults without hiding unsupported options.",
+            "Strict mode hardens Linux backend behavior without hiding unsupported options.",
             security_combo,
         )
     )
@@ -434,7 +437,7 @@ def OpenVPNMainWindow(application, services: ServiceContainer):  # noqa: N802
     security_body.append(
         _build_setting_row(
             "Block IPv6",
-            "Prevent IPv6 traffic outside the managed tunnel when supported by the backend.",
+            "Linux-adapted IPv6 policy that disables tunnel IPv6 capability when enabled.",
             block_ipv6_switch,
             control_align=Gtk.Align.END,
         )
@@ -454,7 +457,7 @@ def OpenVPNMainWindow(application, services: ServiceContainer):  # noqa: N802
     security_body.append(
         _build_setting_row(
             "Local DNS",
-            "Keep local DNS handling enabled for split-tunnel and platform-integrated flows.",
+            "Keep platform DNS defaults unless disabled, which asks the backend for global VPN DNS scope.",
             local_dns_switch,
             control_align=Gtk.Align.END,
         )
@@ -529,6 +532,30 @@ def OpenVPNMainWindow(application, services: ServiceContainer):  # noqa: N802
     capability_rows = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
     capability_body.append(capability_rows)
 
+    environment_card, environment_body = _build_section_card(
+        "Environment Checks",
+        "Linux-specific prerequisites and runtime assumptions are surfaced here before they become connection failures.",
+    )
+    diagnostics_content.append(environment_card)
+    environment_rows = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
+    environment_body.append(environment_rows)
+
+    troubleshooting_card, troubleshooting_body = _build_section_card(
+        "Troubleshooting",
+        "Recommendations are derived from live services, settings, and capability checks.",
+    )
+    diagnostics_content.append(troubleshooting_card)
+    troubleshooting_rows = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
+    troubleshooting_body.append(troubleshooting_rows)
+
+    workflow_card, workflow_body = _build_section_card(
+        "Guided Recovery",
+        "Follow these workflows when diagnostics uncover environment or capability blockers.",
+    )
+    diagnostics_content.append(workflow_card)
+    workflow_rows = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
+    workflow_body.append(workflow_rows)
+
     logs_card, logs_body = _build_section_card(
         "Recent Logs",
         "Logs are redacted before they are shown here or written into a support bundle.",
@@ -575,6 +602,8 @@ def OpenVPNMainWindow(application, services: ServiceContainer):  # noqa: N802
 
     active_watch: Callable[[], None] | None = None
     watched_session_id: str | None = None
+    diagnostics_log_watch: Callable[[], None] | None = None
+    diagnostics_log_session_id: str | None = None
     recent_actions: dict[str, float] = {}
     diagnostics_cache: dict[str, object | None] = {"snapshot": None}
     telemetry_cache: dict[str, object | None] = {"snapshot": None}
@@ -582,9 +611,20 @@ def OpenVPNMainWindow(application, services: ServiceContainer):  # noqa: N802
     settings_save_source_id: int | None = None
     settings_rendering = False
     last_saved_settings_signature: tuple[tuple[str, object], ...] | None = None
+    last_announced_session_error: str | None = None
 
     def show_toast(message: str) -> None:
         toast_overlay.add_toast(Adw.Toast.new(message))
+
+    def announce_session_error(snapshot: SessionSnapshot) -> None:
+        nonlocal last_announced_session_error
+        if snapshot.state is not SessionPhase.ERROR or not snapshot.last_error:
+            last_announced_session_error = None
+            return
+        if snapshot.last_error == last_announced_session_error:
+            return
+        last_announced_session_error = snapshot.last_error
+        show_toast(snapshot.last_error)
 
     def run_debounced_action(
         action_name: str,
@@ -638,6 +678,34 @@ def OpenVPNMainWindow(application, services: ServiceContainer):  # noqa: N802
         if watched_session_id is not None:
             services.telemetry.clear_session(watched_session_id)
         watched_session_id = None
+
+    def clear_diagnostics_log_watch() -> None:
+        nonlocal diagnostics_log_watch, diagnostics_log_session_id
+        if diagnostics_log_watch is not None:
+            diagnostics_log_watch()
+            diagnostics_log_watch = None
+        diagnostics_log_session_id = None
+
+    def set_diagnostics_logs(lines: tuple[str, ...]) -> None:
+        logs_text = "\n".join(lines) if lines else "No recent logs available."
+        logs_view.get_buffer().set_text(logs_text)
+
+    def ensure_diagnostics_log_watch(session_id: str | None) -> None:
+        nonlocal diagnostics_log_watch, diagnostics_log_session_id
+        if session_id is None:
+            clear_diagnostics_log_watch()
+            return
+        if (
+            diagnostics_log_watch is not None
+            and diagnostics_log_session_id == session_id
+        ):
+            return
+        clear_diagnostics_log_watch()
+        diagnostics_log_session_id = session_id
+        diagnostics_log_watch = services.diagnostics.subscribe_live_logs(
+            session_id=session_id,
+            callback=set_diagnostics_logs,
+        )
 
     def visible_page_name() -> str:
         return page_stack.get_visible_child_name() or "profiles"
@@ -784,17 +852,24 @@ def OpenVPNMainWindow(application, services: ServiceContainer):  # noqa: N802
 
     def render_diagnostics() -> None:
         nonlocal last_diagnostics_render_at
+        active_session = services.session_lifecycle.snapshot().active_session
+        active_session_id = active_session.id if active_session is not None else None
         try:
             snapshot = services.diagnostics.build_snapshot(
                 profiles=services.profile_catalog.list_profiles().profiles,
                 settings=services.settings.load(),
+                session_id=active_session_id,
             )
         except Exception as exc:  # pragma: no cover - runtime D-Bus dependent
             diagnostics_updated_label.set_label("Diagnostics unavailable")
             diagnostics_summary_label.set_label(str(exc))
             _clear_box(service_rows)
             _clear_box(capability_rows)
-            logs_view.get_buffer().set_text("")
+            _clear_box(environment_rows)
+            _clear_box(troubleshooting_rows)
+            _clear_box(workflow_rows)
+            clear_diagnostics_log_watch()
+            set_diagnostics_logs(())
             export_path_label.set_label("")
             diagnostics_cache["snapshot"] = None
             last_diagnostics_render_at = monotonic()
@@ -806,7 +881,7 @@ def OpenVPNMainWindow(application, services: ServiceContainer):  # noqa: N802
             f"Updated {datetime.now(timezone.utc).astimezone().strftime('%Y-%m-%d %H:%M:%S %Z')}"
         )
         diagnostics_summary_label.set_label(
-            _diagnostics_summary(snapshot.app_version, snapshot.os_release, snapshot.kernel)
+            _diagnostics_summary(snapshot)
         )
 
         _clear_box(service_rows)
@@ -838,8 +913,39 @@ def OpenVPNMainWindow(application, services: ServiceContainer):  # noqa: N802
                 )
             )
 
-        logs_text = "\n".join(snapshot.recent_logs) if snapshot.recent_logs else "No recent logs available."
-        logs_view.get_buffer().set_text(logs_text)
+        _clear_box(environment_rows)
+        for check in snapshot.environment_checks:
+            environment_rows.append(
+                _build_diagnostic_row(
+                    check.label,
+                    _diagnostic_status_label(check.status),
+                    check.detail,
+                )
+            )
+
+        _clear_box(troubleshooting_rows)
+        for item in snapshot.troubleshooting_items:
+            troubleshooting_rows.append(
+                _build_diagnostic_row(
+                    item.label,
+                    _diagnostic_status_label(item.status),
+                    item.detail,
+                )
+            )
+
+        _clear_box(workflow_rows)
+        for workflow in snapshot.guided_workflows:
+            workflow_rows.append(
+                _build_diagnostic_row(
+                    workflow.label,
+                    _diagnostic_status_label(workflow.status),
+                    _diagnostic_workflow_detail(workflow),
+                )
+            )
+
+        set_diagnostics_logs(snapshot.recent_logs)
+        if visible_page_name() == "diagnostics":
+            ensure_diagnostics_log_watch(active_session_id)
 
     def export_support_bundle() -> None:
         snapshot = diagnostics_cache.get("snapshot")
@@ -865,9 +971,12 @@ def OpenVPNMainWindow(application, services: ServiceContainer):  # noqa: N802
         fab_button.set_visible(page_name == "profiles")
         refresh_button.set_tooltip_text(_refresh_tooltip_for_page(page_name))
         if page_name == "settings":
+            clear_diagnostics_log_watch()
             render_settings()
         elif page_name == "diagnostics":
             render_diagnostics()
+        else:
+            clear_diagnostics_log_watch()
 
     def refresh_service_banner() -> None:
         try:
@@ -1016,8 +1125,8 @@ def OpenVPNMainWindow(application, services: ServiceContainer):  # noqa: N802
             show_toast(f"Connecting to {profile_name}.")
         elif snapshot.state is SessionPhase.RECONNECTING:
             show_toast(f"Reconnecting to {profile_name}.")
-        elif snapshot.state is SessionPhase.ERROR and snapshot.last_error:
-            show_toast(snapshot.last_error)
+        else:
+            announce_session_error(snapshot)
 
     def on_connect(
         profile_id: str,
@@ -1075,6 +1184,16 @@ def OpenVPNMainWindow(application, services: ServiceContainer):  # noqa: N802
 
     def on_summary_primary(*_args) -> None:
         snapshot = services.session_lifecycle.snapshot()
+        if snapshot.state is SessionPhase.ERROR:
+            if snapshot.selected_profile_id is None:
+                services.session_lifecycle.reset_error()
+                render_profiles(False)
+                return
+            on_connect(
+                snapshot.selected_profile_id,
+                profile_name_for(snapshot.selected_profile_id),
+            )
+            return
         if snapshot.active_session is None:
             return
         profile_name = profile_name_for(snapshot.active_session.profile_id)
@@ -1119,6 +1238,14 @@ def OpenVPNMainWindow(application, services: ServiceContainer):  # noqa: N802
             show_toast(f"{profile_name} needs additional input.")
         render_profiles(False)
 
+    def on_summary_secondary(*_args) -> None:
+        snapshot = services.session_lifecycle.snapshot()
+        if snapshot.state is SessionPhase.ERROR:
+            services.session_lifecycle.reset_error()
+            render_profiles(False)
+            return
+        on_disconnect()
+
     def on_profile_toggle(profile_id: str, profile_name: str, new_state: bool) -> bool:
         snapshot = services.session_lifecycle.snapshot()
         active_for_profile = (
@@ -1150,6 +1277,8 @@ def OpenVPNMainWindow(application, services: ServiceContainer):  # noqa: N802
         )
 
     def on_open_profile_details(profile: Profile) -> None:
+        current_profile = {"value": profile}
+
         try:
             available_proxies = services.proxies.list_proxies()
         except Exception as exc:
@@ -1166,25 +1295,29 @@ def OpenVPNMainWindow(application, services: ServiceContainer):  # noqa: N802
             assigned_proxy_id: str | None,
             save_password_requested: bool,
         ) -> None:
-            current_name = profile.name.strip()
-            current_proxy_id = profile.assigned_proxy_id
+            active_profile = current_profile["value"]
+            current_name = active_profile.name.strip()
+            current_proxy_id = active_profile.assigned_proxy_id
             normalized = profile_name.strip()
             changed = False
             if normalized != current_name:
-                services.profile_catalog.rename_profile(profile.id, normalized)
+                services.profile_catalog.rename_profile(active_profile.id, normalized)
                 show_toast(f"Saved profile name as {normalized}.")
                 changed = True
             if assigned_proxy_id != current_proxy_id:
-                services.profile_catalog.assign_proxy(profile.id, assigned_proxy_id)
+                services.profile_catalog.assign_proxy(active_profile.id, assigned_proxy_id)
                 proxy_name = proxy_name_for(assigned_proxy_id) or "No proxy"
                 show_toast(f"Updated proxy assignment to {proxy_name}.")
                 changed = True
             if credential_state.password_saved and not save_password_requested:
-                services.profile_secrets.clear_password(profile.id)
+                services.profile_secrets.clear_password(active_profile.id)
                 credential_state.password_saved = False
                 show_toast("Removed saved password.")
             elif (not credential_state.password_saved) and save_password_requested:
                 show_toast("Password will be saved after the next successful authentication prompt.")
+            updated_profile = services.profile_catalog.get_profile(active_profile.id)
+            if updated_profile is not None:
+                current_profile["value"] = updated_profile
             if changed:
                 render_profiles(False)
 
@@ -1202,22 +1335,34 @@ def OpenVPNMainWindow(application, services: ServiceContainer):  # noqa: N802
         ) -> None:
             persist_profile(profile_name, assigned_proxy_id, save_password_requested)
             on_connect(
-                profile.id,
+                current_profile["value"].id,
                 profile_name,
                 save_password_requested=save_password_requested,
             )
 
+        def reset_profile() -> Profile:
+            services.profile_catalog.reset_profile_overrides(current_profile["value"].id)
+            updated = services.profile_catalog.get_profile(current_profile["value"].id)
+            if updated is None:
+                raise RuntimeError("Profile is no longer available.")
+            current_profile["value"] = updated
+            show_toast("Reset local profile name and proxy assignment.")
+            render_profiles(False)
+            return updated
+
         def delete_profile() -> None:
-            on_delete(profile.id, profile.name)
+            active_profile = current_profile["value"]
+            on_delete(active_profile.id, active_profile.name)
 
         present_profile_details_dialog(
             window,
-            profile=profile,
+            profile=current_profile["value"],
             proxies=available_proxies,
             credential_state=credential_state,
             secure_storage_available=services.profile_secrets.secure_storage_available(),
             on_save=save_profile,
             on_connect=connect_profile,
+            on_reset=reset_profile,
             on_delete=delete_profile,
         )
 
@@ -1251,56 +1396,37 @@ def OpenVPNMainWindow(application, services: ServiceContainer):  # noqa: N802
         snapshot: SessionSnapshot,
         telemetry_snapshot: SessionTelemetrySnapshot | None,
     ) -> None:
-        if snapshot.active_session is None or snapshot.state is SessionPhase.IDLE:
+        if not _should_show_summary(snapshot):
             summary_card.set_visible(False)
             stats_heading.set_visible(False)
             stats_card.set_visible(False)
             telemetry_cache["snapshot"] = None
             return
 
-        profile_name = profile_name_for(snapshot.active_session.profile_id)
+        summary_profile_id = (
+            snapshot.active_session.profile_id
+            if snapshot.active_session is not None
+            else snapshot.selected_profile_id
+        )
+        profile_name = (
+            profile_name_for(summary_profile_id)
+            if summary_profile_id is not None
+            else "OpenVPN Connection"
+        )
         summary_card.set_visible(True)
-        summary_title.set_label(profile_name)
-        if snapshot.attention_requests:
-            summary_detail.set_label(
-                f"{len(snapshot.attention_requests)} credential or challenge field(s) required."
-            )
-        elif snapshot.state is SessionPhase.CONNECTED:
-            summary_detail.set_label(
-                "Connection is active. Session details and live status are shown below."
-            )
-        elif snapshot.state is SessionPhase.PAUSED:
-            summary_detail.set_label("Connection is paused. Resume when you are ready.")
-        else:
-            summary_detail.set_label(
-                snapshot.active_session.status_message or "Session is active."
-            )
+        summary_title.set_label(_summary_title_for(snapshot, profile_name))
+        summary_detail.set_label(_summary_detail_for(snapshot))
 
-        if snapshot.state is SessionPhase.CONNECTED:
-            summary_primary.set_visible(True)
-            summary_primary.set_label("Pause")
-            summary_secondary.set_visible(True)
-            summary_secondary.set_label("Disconnect")
-        elif snapshot.state is SessionPhase.PAUSED:
-            summary_primary.set_visible(True)
-            summary_primary.set_label("Resume")
-            summary_secondary.set_visible(True)
-            summary_secondary.set_label("Disconnect")
-        elif snapshot.attention_requests:
-            summary_primary.set_visible(True)
-            summary_primary.set_label("Continue")
-            summary_secondary.set_visible(True)
-            summary_secondary.set_label("Cancel")
-        elif snapshot.state in {SessionPhase.READY, SessionPhase.SESSION_CREATED}:
-            summary_primary.set_visible(True)
-            summary_primary.set_label("Connect")
-            summary_secondary.set_visible(True)
-            summary_secondary.set_label("Cancel")
-        else:
-            summary_primary.set_visible(True)
-            summary_primary.set_label("Refresh")
-            summary_secondary.set_visible(True)
-            summary_secondary.set_label("Disconnect")
+        primary_label, secondary_label = _summary_action_labels(snapshot)
+        summary_primary.set_visible(primary_label is not None)
+        if primary_label is not None:
+            summary_primary.set_label(primary_label)
+        summary_secondary.set_visible(secondary_label is not None)
+        if secondary_label is not None:
+            summary_secondary.set_label(secondary_label)
+        summary_actions.set_visible(
+            summary_primary.get_visible() or summary_secondary.get_visible()
+        )
 
         show_stats = snapshot.state in {
             SessionPhase.CONNECTED,
@@ -1361,6 +1487,12 @@ def OpenVPNMainWindow(application, services: ServiceContainer):  # noqa: N802
         toggle.set_valign(Gtk.Align.START)
         toggle.set_size_request(54, 30)
         toggle.add_css_class("profile-toggle")
+        if active_for_profile:
+            toggle.set_tooltip_text(f"Disconnect {profile.name}")
+        elif paused_for_profile:
+            toggle.set_tooltip_text(f"Resume {profile.name}")
+        else:
+            toggle.set_tooltip_text(f"Connect {profile.name}")
         if active_for_profile:
             toggle.add_css_class("profile-toggle-active")
         elif paused_for_profile:
@@ -1424,6 +1556,7 @@ def OpenVPNMainWindow(application, services: ServiceContainer):  # noqa: N802
         if not active_for_profile:
             details_button = Gtk.Button(icon_name="document-edit-symbolic")
             details_button.add_css_class("icon-chip")
+            details_button.set_tooltip_text(f"Profile details for {profile.name}")
             details_button.connect(
                 "clicked",
                 lambda *_args: run_debounced_action(
@@ -1463,27 +1596,14 @@ def OpenVPNMainWindow(application, services: ServiceContainer):  # noqa: N802
         except Exception:
             proxy_names = {}
 
-        if session_snapshot.state is SessionPhase.CONNECTED:
-            status_label.set_label("CONNECTED")
-            status_label.remove_css_class("status-paused")
-            status_label.remove_css_class("status-disconnected")
-            status_label.add_css_class("status-connected")
-        elif session_snapshot.state is SessionPhase.PAUSED:
-            status_label.set_label("PAUSED")
-            status_label.remove_css_class("status-connected")
-            status_label.remove_css_class("status-disconnected")
-            status_label.add_css_class("status-paused")
-        elif session_snapshot.state is SessionPhase.IDLE:
-            status_label.set_label("DISCONNECTED")
-            status_label.remove_css_class("status-connected")
-            status_label.remove_css_class("status-paused")
-            status_label.add_css_class("status-disconnected")
-        else:
-            status_label.set_label(session_snapshot.state.value.replace("_", " ").upper())
-            status_label.remove_css_class("status-paused")
-            status_label.remove_css_class("status-disconnected")
-            status_label.add_css_class("status-connected")
+        status_text, status_tone = _status_presentation(session_snapshot)
+        status_label.set_label(status_text)
+        status_label.remove_css_class("status-connected")
+        status_label.remove_css_class("status-paused")
+        status_label.remove_css_class("status-disconnected")
+        status_label.add_css_class(status_tone)
 
+        announce_session_error(session_snapshot)
         update_summary(session_snapshot, telemetry_snapshot)
 
         if catalog_snapshot.profiles:
@@ -1553,7 +1673,8 @@ def OpenVPNMainWindow(application, services: ServiceContainer):  # noqa: N802
             raise RuntimeError(f"Import failed: {exc}") from exc
 
         if preview.duplicate_profile_id:
-            show_toast("Profile imported. Duplicate content already existed.")
+            duplicate_name = preview.duplicate_profile_name or preview.duplicate_profile_id
+            show_toast(f"Profile imported. Matching content already existed as {duplicate_name}.")
         else:
             show_toast(f"Imported {path.name}.")
 
@@ -1587,7 +1708,8 @@ def OpenVPNMainWindow(application, services: ServiceContainer):  # noqa: N802
             raise RuntimeError(f"Import failed: {exc}") from exc
 
         if preview.duplicate_profile_id:
-            show_toast("Profile imported. Duplicate location already existed.")
+            duplicate_name = preview.duplicate_profile_name or preview.duplicate_profile_id
+            show_toast(f"Profile imported. Matching URL already existed as {duplicate_name}.")
         else:
             show_toast(f"Imported {preview.redacted_location or preview.name}.")
         render_profiles(False)
@@ -1675,7 +1797,7 @@ def OpenVPNMainWindow(application, services: ServiceContainer):  # noqa: N802
         "clicked",
         lambda *_args: run_debounced_action(
             "summary-secondary",
-            lambda: on_disconnect(),
+            lambda: on_summary_secondary(),
             widgets=(summary_secondary,),
         ),
     )
@@ -1723,7 +1845,10 @@ def OpenVPNMainWindow(application, services: ServiceContainer):  # noqa: N802
             widgets=(export_bundle_button,),
         ),
     )
-    window.connect("close-request", lambda *_args: (clear_session_watch(), False)[1])
+    window.connect(
+        "close-request",
+        lambda *_args: (clear_session_watch(), clear_diagnostics_log_watch(), False)[2],
+    )
 
     def draw_telemetry_graph(_area, ctx, width: int, height: int) -> None:
         snapshot = telemetry_cache.get("snapshot")
@@ -1931,6 +2056,99 @@ def _stats_body_for(snapshot: SessionSnapshot) -> str:
     return "Live session details are shown below."
 
 
+def _should_show_summary(snapshot: SessionSnapshot) -> bool:
+    if snapshot.state is SessionPhase.ERROR and snapshot.last_error:
+        return True
+    return snapshot.active_session is not None and snapshot.state is not SessionPhase.IDLE
+
+
+def _summary_title_for(snapshot: SessionSnapshot, profile_name: str) -> str:
+    if snapshot.state is SessionPhase.ERROR and not snapshot.selected_profile_id:
+        return "Connection recovery"
+    return profile_name
+
+
+def _summary_detail_for(snapshot: SessionSnapshot) -> str:
+    if snapshot.state is SessionPhase.ERROR and snapshot.last_error:
+        if snapshot.selected_profile_id:
+            return f"{snapshot.last_error} Retry the connection or dismiss this error."
+        return snapshot.last_error
+    if snapshot.attention_requests:
+        return (
+            f"{len(snapshot.attention_requests)} credential or challenge field(s) "
+            "required before connection can continue."
+        )
+    if snapshot.state is SessionPhase.CONNECTED:
+        return "Connection is active. Session details and live status are shown below."
+    if snapshot.state is SessionPhase.PAUSED:
+        return "Connection is paused. Resume when you are ready."
+    if snapshot.state is SessionPhase.RECONNECTING:
+        return (
+            snapshot.active_session.status_message
+            if snapshot.active_session is not None and snapshot.active_session.status_message
+            else "The tunnel dropped and OpenVPN is trying to restore connectivity."
+        )
+    if snapshot.state is SessionPhase.CONNECTING:
+        return (
+            snapshot.active_session.status_message
+            if snapshot.active_session is not None and snapshot.active_session.status_message
+            else "OpenVPN is negotiating the secure tunnel. You can cancel if this stalls."
+        )
+    if snapshot.state is SessionPhase.DISCONNECTING:
+        return (
+            snapshot.active_session.status_message
+            if snapshot.active_session is not None and snapshot.active_session.status_message
+            else "OpenVPN is closing the current session."
+        )
+    if snapshot.active_session is not None and snapshot.active_session.status_message:
+        return snapshot.active_session.status_message
+    return "Session is active."
+
+
+def _summary_action_labels(snapshot: SessionSnapshot) -> tuple[str | None, str | None]:
+    if snapshot.state is SessionPhase.ERROR:
+        if snapshot.selected_profile_id:
+            return ("Retry", "Dismiss")
+        return (None, "Dismiss")
+    if snapshot.state is SessionPhase.CONNECTED:
+        return ("Pause", "Disconnect")
+    if snapshot.state is SessionPhase.PAUSED:
+        return ("Resume", "Disconnect")
+    if snapshot.attention_requests:
+        return ("Continue", "Cancel")
+    if snapshot.state in {SessionPhase.READY, SessionPhase.SESSION_CREATED}:
+        return ("Connect", "Cancel")
+    if snapshot.state is SessionPhase.CONNECTING:
+        return ("Refresh", "Cancel")
+    if snapshot.state is SessionPhase.RECONNECTING:
+        return ("Refresh", "Disconnect")
+    if snapshot.state is SessionPhase.DISCONNECTING:
+        return ("Refresh", None)
+    if snapshot.active_session is not None:
+        return ("Refresh", "Disconnect")
+    return (None, None)
+
+
+def _status_presentation(snapshot: SessionSnapshot) -> tuple[str, str]:
+    if snapshot.state is SessionPhase.CONNECTED:
+        return ("CONNECTED", "status-connected")
+    if snapshot.state is SessionPhase.CONNECTING:
+        return ("CONNECTING", "status-connected")
+    if snapshot.state is SessionPhase.RECONNECTING:
+        return ("RECONNECTING", "status-paused")
+    if snapshot.state is SessionPhase.PAUSED:
+        return ("PAUSED", "status-paused")
+    if snapshot.state is SessionPhase.WAITING_FOR_INPUT:
+        return ("ACTION REQUIRED", "status-paused")
+    if snapshot.state is SessionPhase.DISCONNECTING:
+        return ("DISCONNECTING", "status-paused")
+    if snapshot.state is SessionPhase.ERROR:
+        return ("NEEDS RECOVERY", "status-disconnected")
+    if snapshot.state is SessionPhase.IDLE:
+        return ("DISCONNECTED", "status-disconnected")
+    return (snapshot.state.value.replace("_", " ").upper(), "status-connected")
+
+
 def _telemetry_value(
     snapshot: SessionTelemetrySnapshot | None,
     key: str,
@@ -2078,6 +2296,7 @@ def _refresh_tooltip_for_page(page_name: str) -> str:
 def _display_capability_name(key: str) -> str:
     return {
         "dco": "Data Channel Offload",
+        "posture": "Device Posture",
     }.get(key, key.replace("-", " ").replace("_", " ").title())
 
 
@@ -2091,8 +2310,37 @@ def _short_service_name(service_name: str) -> str:
     return service_name.rsplit(".", maxsplit=1)[-1].replace("-", " ").title()
 
 
-def _diagnostics_summary(app_version: str, os_release: str, kernel: str) -> str:
-    return f"App {app_version} running on {os_release} with kernel {kernel}."
+def _diagnostic_status_label(status: DiagnosticStatus) -> str:
+    return {
+        DiagnosticStatus.PASS: "Pass",
+        DiagnosticStatus.WARN: "Warning",
+        DiagnosticStatus.FAIL: "Action",
+        DiagnosticStatus.INFO: "Info",
+    }[status]
+
+
+def _diagnostics_summary(snapshot) -> str:
+    issue_count = sum(
+        1
+        for item in snapshot.troubleshooting_items
+        if item.status in {DiagnosticStatus.WARN, DiagnosticStatus.FAIL}
+    )
+    issue_suffix = (
+        "no immediate issues detected"
+        if issue_count == 0
+        else f"{issue_count} diagnostic issue(s) need attention"
+    )
+    return (
+        f"App {snapshot.app_version} running on {snapshot.os_release} with kernel "
+        f"{snapshot.kernel}; {issue_suffix}."
+    )
+
+
+def _diagnostic_workflow_detail(workflow) -> str:
+    lines = [workflow.summary]
+    for index, step in enumerate(workflow.steps, start=1):
+        lines.append(f"{index}. {step.title}: {step.detail}")
+    return "\n".join(lines)
 
 
 def _default_support_bundle_path(

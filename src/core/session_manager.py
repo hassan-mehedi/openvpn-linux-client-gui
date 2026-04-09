@@ -3,10 +3,11 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, replace
+from time import monotonic
 from typing import Callable, Protocol
 
 from core.events import SessionEvent
-from core.models import AttentionRequest, SessionDescriptor, SessionPhase
+from core.models import AppSettings, AttentionRequest, SessionDescriptor, SessionPhase
 from core.secrets import saved_password_request_id
 from core.state_machine import SessionStateMachine
 
@@ -60,6 +61,11 @@ class ProfileCredentialBackend(Protocol):
         """Load a saved password for a profile."""
 
 
+class SettingsBackend(Protocol):
+    def load(self) -> AppSettings:
+        """Return the current application settings."""
+
+
 class ConnectionPreparationBackend(Protocol):
     def prepare_profile(self, profile_id: str) -> None:
         """Apply runtime profile settings before session creation."""
@@ -82,18 +88,25 @@ class SessionLifecycleService:
         session_backend: SessionBackend,
         attention_backend: AttentionBackend,
         *,
+        settings_backend: SettingsBackend | None = None,
         profile_credentials: ProfileCredentialBackend | None = None,
         connection_preparation: ConnectionPreparationBackend | None = None,
         state_machine: SessionStateMachine | None = None,
+        monotonic_now: Callable[[], float] | None = None,
     ) -> None:
         self._session_backend = session_backend
         self._attention_backend = attention_backend
+        self._settings_backend = settings_backend
         self._profile_credentials = profile_credentials
         self._connection_preparation = connection_preparation
         self._state_machine = state_machine or SessionStateMachine()
+        self._monotonic_now = monotonic_now or monotonic
         self._active_session: SessionDescriptor | None = None
         self._attention_requests: tuple[AttentionRequest, ...] = ()
         self._auto_submitted_saved_fields: set[tuple[str, str]] = set()
+        self._connection_timeout_deadline: float | None = None
+        self._connection_timeout_seconds: int | None = None
+        self._ignored_session_ids: set[str] = set()
 
     def snapshot(self) -> SessionSnapshot:
         return SessionSnapshot(
@@ -103,6 +116,16 @@ class SessionLifecycleService:
             attention_requests=self._attention_requests,
             last_error=self._state_machine.last_error,
         )
+
+    def reset_error(self) -> SessionSnapshot:
+        if self._state_machine.state is not SessionPhase.ERROR:
+            return self.snapshot()
+        self._state_machine.apply(SessionEvent.RESET)
+        self._active_session = None
+        self._attention_requests = ()
+        self._auto_submitted_saved_fields.clear()
+        self._clear_connection_timeout()
+        return self.snapshot()
 
     def select_profile(self, profile_id: str) -> SessionSnapshot:
         if (
@@ -235,6 +258,7 @@ class SessionLifecycleService:
         self._apply_backend_session(
             self._session_backend.get_session_status(self._active_session.id)
         )
+        self._enforce_connection_timeout()
         if self._state_machine.state is SessionPhase.IDLE:
             self._active_session = None
         return self.snapshot()
@@ -253,6 +277,7 @@ class SessionLifecycleService:
             session
             for session in sessions
             if session.state is not SessionPhase.IDLE
+            and session.id not in self._ignored_session_ids
             and (profile_id is None or session.profile_id == profile_id)
         ]
         if not candidates:
@@ -285,6 +310,7 @@ class SessionLifecycleService:
             if self._active_session is None or self._active_session.id != session.id:
                 return
             self._apply_backend_session(session)
+            self._enforce_connection_timeout()
             if self._state_machine.state is SessionPhase.IDLE:
                 self._active_session = None
             callback(self.snapshot())
@@ -310,8 +336,10 @@ class SessionLifecycleService:
         self._active_session = session
         if previous_session_id != session.id:
             self._auto_submitted_saved_fields.clear()
+            self._clear_connection_timeout()
         self._attention_requests = self._prefill_saved_password(self._collect_attention(session))
         self._sync_state(session)
+        self._sync_connection_timeout()
         if self._state_machine.state is SessionPhase.IDLE:
             self._attention_requests = ()
             self._auto_submitted_saved_fields.clear()
@@ -421,3 +449,62 @@ class SessionLifecycleService:
         prepared = self._session_backend.prepare_session(self._active_session.id)
         self._apply_backend_session(prepared)
         return True
+
+    def _sync_connection_timeout(self) -> None:
+        if self._state_machine.state not in {
+            SessionPhase.CONNECTING,
+            SessionPhase.RECONNECTING,
+        }:
+            self._clear_connection_timeout()
+            return
+        if self._connection_timeout_deadline is not None:
+            return
+        timeout_seconds = self._load_connection_timeout_seconds()
+        self._connection_timeout_seconds = timeout_seconds
+        self._connection_timeout_deadline = self._monotonic_now() + timeout_seconds
+
+    def _clear_connection_timeout(self) -> None:
+        self._connection_timeout_deadline = None
+        self._connection_timeout_seconds = None
+
+    def _load_connection_timeout_seconds(self) -> int:
+        if self._settings_backend is None:
+            return AppSettings().connection_timeout
+        try:
+            return self._settings_backend.load().connection_timeout
+        except Exception:
+            return AppSettings().connection_timeout
+
+    def _enforce_connection_timeout(self) -> None:
+        if (
+            self._active_session is None
+            or self._connection_timeout_deadline is None
+            or self._connection_timeout_seconds is None
+        ):
+            return
+        if self._monotonic_now() < self._connection_timeout_deadline:
+            return
+
+        session_id = self._active_session.id
+        timeout_seconds = self._connection_timeout_seconds
+        self._ignored_session_ids.add(session_id)
+        self._clear_connection_timeout()
+
+        try:
+            disconnected = self._session_backend.disconnect(session_id)
+        except Exception:
+            disconnected = None
+        if disconnected is not None:
+            self._apply_backend_session(disconnected)
+
+        self._active_session = None
+        self._attention_requests = ()
+        self._auto_submitted_saved_fields.clear()
+        self._state_machine.active_session_id = None
+        self._state_machine.apply(
+            SessionEvent.FAIL,
+            reason=(
+                "Connection timed out after "
+                f"{timeout_seconds} seconds."
+            ),
+        )

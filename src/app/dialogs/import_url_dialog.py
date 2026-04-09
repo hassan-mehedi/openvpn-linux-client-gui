@@ -156,6 +156,14 @@ def present_import_profile_dialog(
     review_title.add_css_class("dialog-section-title")
     review_page.append(review_title)
 
+    review_hint = Gtk.Label(
+        label="Confirm the detected profile details before importing."
+    )
+    review_hint.set_xalign(0)
+    review_hint.set_wrap(True)
+    review_hint.add_css_class("dialog-note")
+    review_page.append(review_hint)
+
     review_grid = Gtk.Grid(column_spacing=12, row_spacing=14)
     review_grid.add_css_class("import-review-grid")
     review_page.append(review_grid)
@@ -188,6 +196,13 @@ def present_import_profile_dialog(
     save_password_hint.add_css_class("dialog-note")
     review_page.append(save_password_hint)
 
+    duplicate_label = Gtk.Label()
+    duplicate_label.set_xalign(0)
+    duplicate_label.set_wrap(True)
+    duplicate_label.add_css_class("dialog-note")
+    duplicate_label.set_visible(False)
+    review_page.append(duplicate_label)
+
     warning_label = Gtk.Label()
     warning_label.set_xalign(0)
     warning_label.set_wrap(True)
@@ -214,6 +229,12 @@ def present_import_profile_dialog(
             cancel_button.set_label("Back" if review_visible else "Cancel")
         if accept_button is not None:
             accept_button.set_label("Connect" if review_visible else "Next")
+            if review_visible:
+                accept_button.set_sensitive(bool(review_name_entry.get_text().strip()))
+            elif source_stack.get_visible_child_name() == "file":
+                accept_button.set_sensitive(selected_file["path"] is not None)
+            else:
+                accept_button.set_sensitive(bool(url_entry.get_text().strip()))
 
     def set_error(message: str | None) -> None:
         if message:
@@ -224,12 +245,14 @@ def present_import_profile_dialog(
 
     def reset_review() -> None:
         current_preview["value"] = None
+        duplicate_label.set_visible(False)
         warning_label.set_visible(False)
         save_password.set_active(False)
         review_name_entry.set_text("")
         review_server_value.set_label("")
         review_username_value.set_label("")
         review_source_value.set_label("")
+        review_hint.set_label("Confirm the detected profile details before importing.")
 
     def fill_review(preview: ImportPreview) -> None:
         details = preview.details
@@ -243,19 +266,26 @@ def present_import_profile_dialog(
             details.username if details and details.username else "Requested when connecting"
         )
         review_source_value.set_label(_source_label(preview))
-        if preview.duplicate_profile_id:
-            warning_label.set_label(
-                "A matching profile already exists. Importing again may create a duplicate."
+        review_hint.set_label(_review_hint(preview))
+        if preview.duplicate_profile_id and preview.duplicate_profile_name:
+            duplicate_label.set_label(
+                "Matching profile detected: "
+                f"{preview.duplicate_profile_name} ({preview.duplicate_reason or 'Existing import'}). "
+                "Import again only if you intentionally need a separate copy."
             )
-            warning_label.set_visible(True)
-        elif preview.warnings:
-            warning_label.set_label(" ".join(preview.warnings))
+            duplicate_label.set_visible(True)
+        else:
+            duplicate_label.set_visible(False)
+        if preview.warnings:
+            warning_label.set_label("\n".join(preview.warnings))
             warning_label.set_visible(True)
         else:
             warning_label.set_visible(False)
+        sync_actions()
 
     def preview_current_selection() -> bool:
         set_error(None)
+        sync_actions()
         try:
             if source_stack.get_visible_child_name() == "file":
                 if selected_file["path"] is None:
@@ -369,6 +399,9 @@ def present_import_profile_dialog(
         dialog.destroy()
 
     browse_button.connect("clicked", choose_file)
+    url_entry.connect("changed", lambda *_args: (set_error(None), sync_actions()))
+    review_name_entry.connect("changed", lambda *_args: (set_error(None), sync_actions()))
+    source_stack.connect("notify::visible-child-name", lambda *_args: sync_actions())
 
     drop_target = Gtk.DropTarget.new(Gdk.FileList, Gdk.DragAction.COPY)
     drop_target.connect("drop", on_drop)
@@ -409,3 +442,11 @@ def _coerce_dropped_files(value: Any) -> list[Any]:
     if isinstance(value, (list, tuple)):
         return list(value)
     return []
+
+
+def _review_hint(preview: ImportPreview) -> str:
+    if preview.source is ImportSource.TOKEN_URL:
+        return "Token onboarding was normalized into a standard HTTPS import for review."
+    if preview.source is ImportSource.URL:
+        return "Remote profile details are inferred from the URL until the file is imported."
+    return "Local profile details were detected from the selected .ovpn file."

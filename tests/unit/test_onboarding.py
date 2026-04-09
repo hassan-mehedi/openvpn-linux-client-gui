@@ -60,6 +60,8 @@ def test_prepare_url_import_detects_duplicates() -> None:
     preview = service.prepare_url_import("https://vpn.example.com/profile.ovpn")
 
     assert preview.duplicate_profile_id == "profile-1"
+    assert preview.duplicate_profile_name == "Existing"
+    assert preview.duplicate_reason == "Matching import URL"
 
 
 def test_prepare_token_url_import_normalizes_and_redacts() -> None:
@@ -73,6 +75,15 @@ def test_prepare_token_url_import_normalizes_and_redacts() -> None:
     assert preview.canonical_location == "https://vpn.example.com/download?token=abc123"
     assert preview.redacted_location == "https://vpn.example.com/download?redacted"
     assert preview.source is ImportSource.TOKEN_URL
+    assert preview.details == ImportProfileDetails(
+        profile_name="download",
+        server_hostname="vpn.example.com",
+        username=None,
+        server_locked=True,
+        username_locked=False,
+        auth_requires_password=False,
+    )
+    assert "Token URL was normalized into a secure HTTPS import." in preview.warnings
 
 
 def test_prepare_url_import_rejects_non_https() -> None:
@@ -80,6 +91,33 @@ def test_prepare_url_import_rejects_non_https() -> None:
 
     with pytest.raises(OnboardingError):
         service.prepare_url_import("http://vpn.example.com/profile.ovpn")
+
+
+def test_prepare_url_import_rejects_embedded_credentials() -> None:
+    service = OnboardingService(FakeBackend())
+
+    with pytest.raises(OnboardingError):
+        service.prepare_url_import("https://alice:secret@vpn.example.com/profile.ovpn")
+
+
+def test_prepare_url_import_infers_remote_details_and_warnings() -> None:
+    service = OnboardingService(FakeBackend())
+
+    preview = service.prepare_url_import("https://vpn.example.com/download?token=secret")
+
+    assert preview.name == "download"
+    assert preview.details == ImportProfileDetails(
+        profile_name="download",
+        server_hostname="vpn.example.com",
+        username=None,
+        server_locked=True,
+        username_locked=False,
+        auth_requires_password=False,
+    )
+    assert preview.warnings == (
+        "Sensitive query parameters are redacted in previews and support bundles.",
+        "The final profile name may change after download because the URL does not end with .ovpn.",
+    )
 
 
 def test_prepare_file_import_hashes_payload(tmp_path: Path) -> None:
@@ -125,4 +163,7 @@ def test_prepare_file_import_extracts_windows_style_profile_details(tmp_path: Pa
         server_locked=True,
         username_locked=True,
         auth_requires_password=True,
+    )
+    assert preview.warnings == (
+        "This profile still requires authentication during connection.",
     )

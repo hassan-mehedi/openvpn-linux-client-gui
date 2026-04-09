@@ -1,0 +1,2 @@
+include README.md
+recursive-include packaging *.in *.md *.py *.svg *.xml

@@ -17,6 +17,7 @@ from openvpn3.attention_service import AttentionService
 from openvpn3.backend_service import BackendService
 from openvpn3.configuration_service import ConfigurationService
 from openvpn3.dbus_client import DBusClient, create_default_transport
+from openvpn3.introspection_service import IntrospectionService
 from openvpn3.log_service import LogService
 from openvpn3.netcfg_service import NetCfgService
 from openvpn3.session_service import SessionService
@@ -26,8 +27,15 @@ class _DiagnosticLogSource:
     def __init__(self, log_service: LogService) -> None:
         self._log_service = log_service
 
-    def recent_logs(self, limit: int = 200) -> tuple[str, ...]:
-        return self._log_service.recent_logs(limit=limit)
+    def recent_logs(self, session_id: str | None = None, limit: int = 200) -> tuple[str, ...]:
+        return self._log_service.recent_logs(session_id=session_id, limit=limit)
+
+    def subscribe_logs(
+        self,
+        session_id: str,
+        callback,
+    ):
+        return self._log_service.subscribe_logs(session_id, callback)
 
 
 @dataclass(slots=True)
@@ -38,6 +46,7 @@ class ServiceContainer:
     log: LogService
     backend: BackendService
     netcfg: NetCfgService
+    introspection: IntrospectionService
     onboarding: OnboardingService
     settings: SettingsService
     proxies: ProxyService
@@ -60,6 +69,7 @@ def build_live_services() -> ServiceContainer:
     log = LogService(client, session_resolver=session.resolve_object_path)
     backend = BackendService(client)
     netcfg = NetCfgService(client)
+    introspection = IntrospectionService(client)
     onboarding = OnboardingService(configuration)
     settings = SettingsService()
     secret_store = create_secret_store()
@@ -70,6 +80,7 @@ def build_live_services() -> ServiceContainer:
         reachability_probe=backend,
         capability_probe=netcfg,
         log_source=_DiagnosticLogSource(log),
+        dbus_validation_probe=introspection,
     )
     profile_catalog = ProfileCatalogService(
         configuration,
@@ -85,6 +96,7 @@ def build_live_services() -> ServiceContainer:
     session_lifecycle = SessionLifecycleService(
         session,
         attention,
+        settings_backend=settings,
         profile_credentials=profile_secrets,
         connection_preparation=connection_preparation,
     )
@@ -95,6 +107,7 @@ def build_live_services() -> ServiceContainer:
         log=log,
         backend=backend,
         netcfg=netcfg,
+        introspection=introspection,
         onboarding=onboarding,
         settings=settings,
         proxies=proxies,

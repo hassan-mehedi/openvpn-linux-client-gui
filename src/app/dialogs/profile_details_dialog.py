@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 from collections.abc import Callable
+from datetime import datetime
 import re
+from urllib.parse import urlsplit
 
 from app.dialogs.common import configure_dialog_chrome
 from core.models import Profile, ProxyDefinition, SavedCredentialState
@@ -24,6 +26,7 @@ else:  # pragma: no cover - UI boot is not exercised in unit tests
 
 
 DELETE_RESPONSE = 1001
+RESET_RESPONSE = 1002
 _PROFILE_SAVE_DEBOUNCE_MS = 500
 
 
@@ -36,19 +39,22 @@ def present_profile_details_dialog(
     secure_storage_available: bool,
     on_save: Callable[[str, str | None, bool], None],
     on_connect: Callable[[str, str | None, bool], None],
+    on_reset: Callable[[], Profile],
     on_delete: Callable[[], None],
 ) -> None:
     if Gtk is None or GLib is None:
         raise RuntimeError("GTK4 is required to create the profile details dialog.") from _IMPORT_ERROR
 
     dialog = Gtk.Dialog(title="Imported Profile", transient_for=parent, modal=True)
-    dialog.set_default_size(420, 360)
+    dialog.set_default_size(460, 560)
     dialog.set_resizable(False)
     dialog.add_button("", DELETE_RESPONSE)
+    dialog.add_button("", RESET_RESPONSE)
     dialog.add_button("", Gtk.ResponseType.ACCEPT)
     dialog.set_default_response(Gtk.ResponseType.ACCEPT)
 
     delete_button = dialog.get_widget_for_response(DELETE_RESPONSE)
+    reset_button = dialog.get_widget_for_response(RESET_RESPONSE)
     accept_button = dialog.get_widget_for_response(Gtk.ResponseType.ACCEPT)
     if delete_button is not None:
         _configure_icon_action_button(
@@ -56,6 +62,13 @@ def present_profile_details_dialog(
             icon_name="user-trash-symbolic",
             tooltip="Delete profile",
             css_class="dialog-action-delete",
+        )
+    if reset_button is not None:
+        _configure_icon_action_button(
+            reset_button,
+            icon_name="edit-clear-symbolic",
+            tooltip="Reset local changes",
+            css_class="dialog-action-secondary",
         )
     if accept_button is not None:
         _configure_icon_action_button(
@@ -66,19 +79,24 @@ def present_profile_details_dialog(
         )
 
     area = configure_dialog_chrome(dialog, title="Imported Profile")
+    scroller = Gtk.ScrolledWindow()
+    scroller.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
+    area.append(scroller)
+
     box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=16)
     box.set_margin_top(20)
     box.set_margin_bottom(20)
     box.set_margin_start(20)
     box.set_margin_end(20)
-    area.append(box)
+    scroller.set_child(box)
 
     title = Gtk.Label(label="Imported Profile")
     title.set_xalign(0)
     title.add_css_class("dialog-title")
     box.append(title)
 
-    details = _resolve_profile_details(profile)
+    current_profile = profile
+    details = _resolve_profile_details(current_profile)
 
     grid = Gtk.Grid(column_spacing=12, row_spacing=14)
     grid.add_css_class("import-review-grid")
@@ -88,7 +106,7 @@ def present_profile_details_dialog(
     profile_name_label.set_xalign(0)
     profile_name_label.add_css_class("dialog-field-label")
     profile_name_entry = Gtk.Entry()
-    profile_name_entry.set_text(details["profile_name"] or profile.name)
+    profile_name_entry.set_text(details["profile_name"] or current_profile.name)
     profile_name_entry.add_css_class("dialog-entry")
     profile_name_entry.add_css_class("dialog-entry-plain")
     profile_name_entry.set_hexpand(True)
@@ -117,9 +135,14 @@ def present_profile_details_dialog(
     proxy_combo.append("", "No proxy")
     for proxy in proxies:
         proxy_combo.append(proxy.id, _proxy_option_label(proxy))
-    if profile.assigned_proxy_id and not any(item.id == profile.assigned_proxy_id for item in proxies):
-        proxy_combo.append(profile.assigned_proxy_id, f"Missing proxy ({profile.assigned_proxy_id})")
-    proxy_combo.set_active_id(profile.assigned_proxy_id or "")
+    if current_profile.assigned_proxy_id and not any(
+        item.id == current_profile.assigned_proxy_id for item in proxies
+    ):
+        proxy_combo.append(
+            current_profile.assigned_proxy_id,
+            f"Missing proxy ({current_profile.assigned_proxy_id})",
+        )
+    proxy_combo.set_active_id(current_profile.assigned_proxy_id or "")
     proxy_combo.set_hexpand(True)
     proxy_combo.set_halign(Gtk.Align.FILL)
     grid.attach(proxy_label, 0, 6, 1, 1)
@@ -136,6 +159,34 @@ def present_profile_details_dialog(
     proxy_hint.set_wrap(True)
     proxy_hint.add_css_class("dialog-note")
     box.append(proxy_hint)
+
+    facts_title = Gtk.Label(label="Profile Facts")
+    facts_title.set_xalign(0)
+    facts_title.add_css_class("dialog-field-label")
+    box.append(facts_title)
+
+    facts_grid = Gtk.Grid(column_spacing=12, row_spacing=14)
+    facts_grid.add_css_class("import-review-grid")
+    box.append(facts_grid)
+
+    source_value = _attach_detail_row(facts_grid, "Source", "", 0)
+    origin_value = _attach_detail_row(facts_grid, "Origin", "", 1)
+    imported_value = _attach_detail_row(facts_grid, "Imported", "", 2)
+    last_used_value = _attach_detail_row(facts_grid, "Last Used", "", 3)
+    usage_value = _attach_detail_row(facts_grid, "Session Count", "", 4)
+    backend_state_value = _attach_detail_row(facts_grid, "Backend State", "", 5)
+    tags_value = _attach_detail_row(facts_grid, "Tags", "", 6)
+
+    facts_hint = Gtk.Label(
+        label=(
+            "Name and proxy assignment are local app overrides. Backend facts remain read-only "
+            "so the desktop UI does not rewrite imported profile content."
+        )
+    )
+    facts_hint.set_xalign(0)
+    facts_hint.set_wrap(True)
+    facts_hint.add_css_class("dialog-note")
+    box.append(facts_hint)
 
     save_password = Gtk.CheckButton(label="Save password")
     save_password.set_active(credential_state.password_saved)
@@ -163,12 +214,25 @@ def present_profile_details_dialog(
     box.append(error_label)
 
     save_source_id: int | None = None
-    last_saved_name = _normalize_profile_name(details["profile_name"] or profile.name)
-    last_saved_proxy_id = _normalize_proxy_id(profile.assigned_proxy_id)
+    last_saved_name = _normalize_profile_name(details["profile_name"] or current_profile.name)
+    last_saved_proxy_id = _normalize_proxy_id(current_profile.assigned_proxy_id)
     last_saved_password_state = credential_state.password_saved
 
+    def refresh_fact_rows() -> None:
+        nonlocal details
+        details = _resolve_profile_details(current_profile)
+        source_value.set_label(_profile_source_label(current_profile))
+        origin_value.set_label(_profile_origin_label(current_profile))
+        imported_value.set_label(_format_profile_timestamp(current_profile.imported_at))
+        last_used_value.set_label(_format_profile_timestamp(current_profile.last_used))
+        usage_value.set_label(_profile_usage_label(current_profile))
+        backend_state_value.set_label(_profile_backend_state(current_profile))
+        tags_value.set_label(_profile_tags_label(current_profile))
+
+    refresh_fact_rows()
+
     def save_profile_name_if_needed() -> bool:
-        nonlocal save_source_id, last_saved_name, last_saved_proxy_id, last_saved_password_state
+        nonlocal current_profile, save_source_id, last_saved_name, last_saved_proxy_id, last_saved_password_state
         save_source_id = None
         profile_name = _normalize_profile_name(profile_name_entry.get_text())
         assigned_proxy_id = _normalize_proxy_id(proxy_combo.get_active_id())
@@ -183,16 +247,29 @@ def present_profile_details_dialog(
             and save_password_requested == last_saved_password_state
         ):
             return True
+        previous_profile = current_profile
         try:
             on_save(profile_name, assigned_proxy_id, save_password_requested)
         except Exception as exc:
             error_label.set_label(str(exc))
             error_label.set_visible(True)
             return False
+        current_profile = Profile(
+            id=previous_profile.id,
+            name=profile_name,
+            source=previous_profile.source,
+            imported_at=previous_profile.imported_at,
+            parity=previous_profile.parity,
+            last_used=previous_profile.last_used,
+            assigned_proxy_id=assigned_proxy_id,
+            metadata=previous_profile.metadata,
+            capabilities=previous_profile.capabilities,
+        )
         last_saved_name = profile_name
         last_saved_proxy_id = assigned_proxy_id
         last_saved_password_state = save_password_requested
         error_label.set_visible(False)
+        refresh_fact_rows()
         return True
 
     def schedule_profile_save(*_args) -> None:
@@ -221,13 +298,32 @@ def present_profile_details_dialog(
     save_password.connect("toggled", refresh_save_password_hint)
 
     def on_response(_dialog: Gtk.Dialog, response_id: int) -> None:
-        nonlocal save_source_id
+        nonlocal current_profile, save_source_id, last_saved_name, last_saved_proxy_id
         if response_id == DELETE_RESPONSE:
             if save_source_id is not None:
                 GLib.source_remove(save_source_id)
                 save_source_id = None
             on_delete()
             dialog.destroy()
+            return
+
+        if response_id == RESET_RESPONSE:
+            if save_source_id is not None:
+                GLib.source_remove(save_source_id)
+                save_source_id = None
+            try:
+                current_profile = on_reset()
+            except Exception as exc:
+                error_label.set_label(str(exc))
+                error_label.set_visible(True)
+                return
+            details = _resolve_profile_details(current_profile)
+            profile_name_entry.set_text(details["profile_name"] or current_profile.name)
+            proxy_combo.set_active_id(current_profile.assigned_proxy_id or "")
+            last_saved_name = _normalize_profile_name(profile_name_entry.get_text())
+            last_saved_proxy_id = _normalize_proxy_id(current_profile.assigned_proxy_id)
+            error_label.set_visible(False)
+            refresh_fact_rows()
             return
 
         if response_id != Gtk.ResponseType.ACCEPT:
@@ -257,7 +353,7 @@ def present_profile_details_dialog(
     dialog.present()
 
 
-def _attach_detail_row(grid: Gtk.Grid, label: str, value: str, row: int) -> None:
+def _attach_detail_row(grid: Gtk.Grid, label: str, value: str, row: int):
     title = Gtk.Label(label=label)
     title.set_xalign(0)
     title.add_css_class("dialog-field-label")
@@ -267,6 +363,7 @@ def _attach_detail_row(grid: Gtk.Grid, label: str, value: str, row: int) -> None
     current_value.add_css_class("dialog-value")
     grid.attach(title, 0, row * 2, 1, 1)
     grid.attach(current_value, 0, row * 2 + 1, 1, 1)
+    return current_value
 
 
 def _configure_icon_action_button(button, *, icon_name: str, tooltip: str, css_class: str) -> None:
@@ -326,6 +423,49 @@ def _resolve_profile_details(profile: Profile) -> dict[str, str | None]:
         "server_hostname": str(server_hostname) if server_hostname else parsed_host,
         "username": str(username) if username else parsed_username,
     }
+
+
+def _profile_source_label(profile: Profile) -> str:
+    return profile.source.value.replace("-", " ").title()
+
+
+def _profile_origin_label(profile: Profile) -> str:
+    canonical_url = profile.metadata.get("canonical_url")
+    if not canonical_url:
+        return "Imported from local file or drag-and-drop."
+    parsed = urlsplit(str(canonical_url))
+    if not parsed.scheme or not parsed.netloc:
+        return "Remote origin recorded but unavailable for display."
+    return f"{parsed.scheme}://{parsed.netloc}{parsed.path or '/'}"
+
+
+def _format_profile_timestamp(value: datetime | None) -> str:
+    if value is None:
+        return "Not recorded"
+    return value.astimezone().strftime("%Y-%m-%d %H:%M")
+
+
+def _profile_usage_label(profile: Profile) -> str:
+    return str(int(profile.metadata.get("used_count", 0) or 0))
+
+
+def _profile_backend_state(profile: Profile) -> str:
+    labels: list[str] = []
+    labels.append("Valid" if profile.metadata.get("valid", False) else "Unvalidated")
+    if profile.metadata.get("persistent", False):
+        labels.append("Persistent")
+    if profile.metadata.get("readonly", False):
+        labels.append("Read-only")
+    if profile.metadata.get("locked_down", False):
+        labels.append("Locked down")
+    return ", ".join(labels)
+
+
+def _profile_tags_label(profile: Profile) -> str:
+    tags = profile.metadata.get("tags", ())
+    if not tags:
+        return "None"
+    return ", ".join(str(tag) for tag in tags)
 
 
 def _parse_name_for_details(name: str) -> tuple[str | None, str | None]:

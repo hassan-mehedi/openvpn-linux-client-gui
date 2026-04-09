@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" role="img" aria-label="OpenVPN 3 Linux">
+  <defs>
+    <linearGradient id="shield" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#0b5cab"/>
+      <stop offset="100%" stop-color="#0e8c6f"/>
+    </linearGradient>
+  </defs>
+  <rect width="128" height="128" rx="28" fill="#eff5f8"/>
+  <path d="M64 18c-16.6 11.2-31.4 16.9-44.5 18v28.5c0 24.7 18.1 41.9 44.5 52 26.4-10.1 44.5-27.3 44.5-52V36c-13.1-1.1-27.9-6.8-44.5-18Z" fill="url(#shield)"/>
+  <path d="M64 43a16 16 0 0 0-16 16v8.5c0 3.6 1.3 7 3.6 9.7L44 92h14.2L64 84.8 69.8 92H84l-7.6-14.8a15.9 15.9 0 0 0 3.6-9.7V59a16 16 0 0 0-16-16Zm0 10.5A5.5 5.5 0 0 1 69.5 59v8.5a5.5 5.5 0 0 1-11 0V59A5.5 5.5 0 0 1 64 53.5Z" fill="#ffffff"/>
+</svg>

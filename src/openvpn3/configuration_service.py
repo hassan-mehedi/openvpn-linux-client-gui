@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 from urllib.parse import urlsplit
 from urllib.request import urlopen
 
@@ -15,6 +16,7 @@ from core.models import (
     Profile,
     ProxyCredentials,
     ProxyDefinition,
+    SecurityLevel,
 )
 from openvpn3.dbus_client import (
     CONFIGURATION_SERVICE_NAME,
@@ -33,6 +35,25 @@ _PROXY_OVERRIDE_KEYS = (
     "proxy-password",
     "proxy-auth-cleartext",
 )
+_TLS_MIN_OVERRIDE = "tls-version-min"
+_TLS13_MIN_VERSION = "1.3"
+
+
+@dataclass(slots=True, frozen=True)
+class ConnectionSettingIssue:
+    key: str
+    label: str
+    reason: str
+
+
+class UnsupportedConnectionSettingsError(ValueError):
+    def __init__(self, issues: tuple[ConnectionSettingIssue, ...]) -> None:
+        self.issues = issues
+        summary = ", ".join(issue.label for issue in issues)
+        super().__init__(
+            "OpenVPN 3 Linux cannot enforce these saved connection settings yet: "
+            f"{summary}. Reset them to their defaults before connecting."
+        )
 
 
 class ConfigurationService:
@@ -91,16 +112,87 @@ class ConfigurationService:
         self._profile_ids_by_path.pop(profile_path, None)
 
     def apply_connection_settings(self, profile_id: str, settings: AppSettings) -> None:
-        if settings.protocol is ConnectionProtocol.AUTO:
-            self.unset_override(profile_id, "proto-override")
-        else:
-            self.set_override(profile_id, "proto-override", settings.protocol.value)
-        self.set_override(
+        # `connection_timeout` is enforced by the core session lifecycle.
+        # The verified configuration D-Bus surface does not expose an equivalent
+        # saved override we can apply here.
+        self._apply_setting(
             profile_id,
-            "dns-fallback-google",
-            settings.google_dns_fallback,
+            ConnectionSettingIssue(
+                key="protocol",
+                label="Protocol selection",
+                reason="The backend rejected the requested protocol override.",
+            ),
+            lambda: self.unset_override(profile_id, "proto-override")
+            if settings.protocol is ConnectionProtocol.AUTO
+            else self.set_override(profile_id, "proto-override", settings.protocol.value),
         )
-        self.set_property(profile_id, "dco", settings.dco)
+        self._apply_setting(
+            profile_id,
+            ConnectionSettingIssue(
+                key="google_dns_fallback",
+                label="Google DNS fallback",
+                reason="The backend rejected the requested DNS fallback policy.",
+            ),
+            lambda: self.set_override(
+                profile_id,
+                "dns-fallback-google",
+                settings.google_dns_fallback,
+            ),
+        )
+        self._apply_setting(
+            profile_id,
+            ConnectionSettingIssue(
+                key="seamless_tunnel",
+                label="Seamless tunnel",
+                reason="The backend rejected the requested persistent tunnel policy.",
+            ),
+            lambda: self.set_override(profile_id, "persist-tun", settings.seamless_tunnel),
+        )
+        self._apply_setting(
+            profile_id,
+            ConnectionSettingIssue(
+                key="enforce_tls13",
+                label="TLS 1.3 enforcement",
+                reason="The backend rejected the requested minimum TLS version.",
+            ),
+            lambda: self._apply_tls_policy(profile_id, settings.enforce_tls13),
+        )
+        self._apply_setting(
+            profile_id,
+            ConnectionSettingIssue(
+                key="security_level",
+                label="Security level",
+                reason="The backend rejected the requested strict security policy.",
+            ),
+            lambda: self._apply_security_level(profile_id, settings.security_level),
+        )
+        self._apply_setting(
+            profile_id,
+            ConnectionSettingIssue(
+                key="block_ipv6",
+                label="Block IPv6",
+                reason="The backend rejected the requested IPv6 tunnel policy.",
+            ),
+            lambda: self._apply_ipv6_policy(profile_id, settings.block_ipv6),
+        )
+        self._apply_setting(
+            profile_id,
+            ConnectionSettingIssue(
+                key="local_dns",
+                label="Local DNS handling",
+                reason="The backend rejected the requested DNS query scope.",
+            ),
+            lambda: self._apply_dns_scope(profile_id, settings.local_dns),
+        )
+        self._apply_setting(
+            profile_id,
+            ConnectionSettingIssue(
+                key="dco",
+                label="Data Channel Offload",
+                reason="The backend rejected the requested DCO setting.",
+            ),
+            lambda: self.set_property(profile_id, "dco", settings.dco),
+        )
 
     def apply_proxy_assignment(
         self,
@@ -165,6 +257,55 @@ class ConfigurationService:
             signature="ssv",
             params=(CONFIGURATION_INTERFACE, name, value),
         )
+
+    def _apply_setting(
+        self,
+        profile_id: str,
+        issue: ConnectionSettingIssue,
+        action: Callable[[], None],
+    ) -> None:
+        try:
+            action()
+        except UnsupportedConnectionSettingsError:
+            raise
+        except Exception as exc:
+            detail = str(exc).strip()
+            reason = issue.reason
+            if detail:
+                reason = f"{reason} Backend reported: {detail}"
+            raise UnsupportedConnectionSettingsError(
+                (ConnectionSettingIssue(issue.key, issue.label, reason),)
+            ) from exc
+
+    def _apply_security_level(
+        self,
+        profile_id: str,
+        level: SecurityLevel,
+    ) -> None:
+        if level is SecurityLevel.STRICT:
+            self.set_override(profile_id, "enable-legacy-algorithms", False)
+            self.set_override(profile_id, "allow-compression", "no")
+            return
+        self.unset_override(profile_id, "enable-legacy-algorithms")
+        self.unset_override(profile_id, "allow-compression")
+
+    def _apply_tls_policy(self, profile_id: str, enforce_tls13: bool) -> None:
+        if enforce_tls13:
+            self.set_override(profile_id, _TLS_MIN_OVERRIDE, _TLS13_MIN_VERSION)
+            return
+        self.unset_override(profile_id, _TLS_MIN_OVERRIDE)
+
+    def _apply_ipv6_policy(self, profile_id: str, block_ipv6: bool) -> None:
+        if block_ipv6:
+            self.set_override(profile_id, "ipv6", "no")
+            return
+        self.unset_override(profile_id, "ipv6")
+
+    def _apply_dns_scope(self, profile_id: str, local_dns_enabled: bool) -> None:
+        if local_dns_enabled:
+            self.unset_override(profile_id, "dns-scope")
+            return
+        self.set_override(profile_id, "dns-scope", "global")
 
     def resolve_object_path(self, profile_id: str) -> str:
         try:

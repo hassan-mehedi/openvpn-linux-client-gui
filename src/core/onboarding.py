@@ -49,46 +49,62 @@ class OnboardingService:
             raise OnboardingError("Profile file is empty.")
 
         content_hash = hashlib.sha256(payload).hexdigest()
-        duplicate_profile_id = self._find_duplicate(content_hash=content_hash)
         details = self.inspect_profile_bytes(path.name, payload)
+        duplicate_profile = self._find_duplicate(content_hash=content_hash)
+        warnings = self._build_file_preview_warnings(details)
         return ImportPreview(
-            name=path.name,
+            name=details.profile_name or path.name,
             source=source,
             canonical_location=str(path),
             redacted_location=str(path),
             content_hash=content_hash,
-            duplicate_profile_id=duplicate_profile_id,
+            duplicate_profile_id=duplicate_profile.id if duplicate_profile is not None else None,
+            duplicate_profile_name=duplicate_profile.name if duplicate_profile is not None else None,
+            duplicate_reason=(
+                "Matching profile contents" if duplicate_profile is not None else None
+            ),
+            warnings=warnings,
             details=details,
         )
 
     def prepare_url_import(self, url: str) -> ImportPreview:
         canonical_url = self._validate_https_url(url)
-        duplicate_profile_id = self._find_duplicate(canonical_url=canonical_url)
+        duplicate_profile = self._find_duplicate(canonical_url=canonical_url)
         redacted_url = self._redact_url(canonical_url)
+        details = self._build_url_details(canonical_url)
         return ImportPreview(
-            name=Path(urlsplit(canonical_url).path).name or "remote-profile.ovpn",
+            name=details.profile_name,
             source=ImportSource.URL,
             canonical_location=canonical_url,
             redacted_location=redacted_url,
-            duplicate_profile_id=duplicate_profile_id,
-            details=ImportProfileDetails(
-                profile_name=Path(urlsplit(canonical_url).path).name or "remote-profile.ovpn"
+            duplicate_profile_id=duplicate_profile.id if duplicate_profile is not None else None,
+            duplicate_profile_name=duplicate_profile.name if duplicate_profile is not None else None,
+            duplicate_reason=(
+                "Matching import URL" if duplicate_profile is not None else None
             ),
+            warnings=self._build_remote_preview_warnings(canonical_url),
+            details=details,
         )
 
     def prepare_token_url_import(self, token_url: str) -> ImportPreview:
         canonical_url = self._normalize_token_url(token_url)
-        duplicate_profile_id = self._find_duplicate(canonical_url=canonical_url)
+        duplicate_profile = self._find_duplicate(canonical_url=canonical_url)
+        details = self._build_url_details(canonical_url)
         return ImportPreview(
-            name=Path(urlsplit(canonical_url).path).name or "token-profile.ovpn",
+            name=details.profile_name,
             source=ImportSource.TOKEN_URL,
             canonical_location=canonical_url,
             redacted_location=self._redact_url(canonical_url),
-            duplicate_profile_id=duplicate_profile_id,
-            warnings=("Token URL was normalized into a secure HTTPS import.",),
-            details=ImportProfileDetails(
-                profile_name=Path(urlsplit(canonical_url).path).name or "token-profile.ovpn"
+            duplicate_profile_id=duplicate_profile.id if duplicate_profile is not None else None,
+            duplicate_profile_name=duplicate_profile.name if duplicate_profile is not None else None,
+            duplicate_reason=(
+                "Matching import URL" if duplicate_profile is not None else None
             ),
+            warnings=(
+                "Token URL was normalized into a secure HTTPS import.",
+                *self._build_remote_preview_warnings(canonical_url),
+            ),
+            details=details,
         )
 
     def import_file(
@@ -141,12 +157,12 @@ class OnboardingService:
         *,
         canonical_url: str | None = None,
         content_hash: str | None = None,
-    ) -> str | None:
+    ) -> Profile | None:
         for profile in self._backend.list_profiles():
             if canonical_url and profile.metadata.get("canonical_url") == canonical_url:
-                return profile.id
+                return profile
             if content_hash and profile.metadata.get("content_hash") == content_hash:
-                return profile.id
+                return profile
         return None
 
     def inspect_profile_bytes(self, name: str, payload: bytes) -> ImportProfileDetails:
@@ -172,20 +188,30 @@ class OnboardingService:
         )
 
     def _normalize_token_url(self, token_url: str) -> str:
-        prefix = "openvpn://import-profile/"
-        if not token_url.startswith(prefix):
+        parts = urlsplit(token_url.strip())
+        if parts.scheme != "openvpn" or parts.netloc != "import-profile":
             raise OnboardingError("Unsupported token URL format.")
-
-        raw_target = unquote(token_url[len(prefix) :])
+        if parts.query or parts.fragment:
+            raise OnboardingError("Token URLs must not include extra query or fragment data.")
+        raw_target = unquote(parts.path.lstrip("/"))
+        if not raw_target:
+            raise OnboardingError("Token URL does not contain an import target.")
         canonical_target = self._validate_https_url(raw_target)
         return canonical_target
 
     def _validate_https_url(self, url: str) -> str:
-        parts = urlsplit(url)
+        normalized = url.strip()
+        if not normalized:
+            raise OnboardingError("Enter a profile URL first.")
+        parts = urlsplit(normalized)
         if parts.scheme != "https":
             raise OnboardingError("Only HTTPS import URLs are allowed.")
-        if not parts.netloc:
+        if not parts.hostname:
             raise OnboardingError("Import URL must include a host.")
+        if parts.username or parts.password:
+            raise OnboardingError("Import URL must not include embedded credentials.")
+        if parts.fragment:
+            raise OnboardingError("Import URL must not include a fragment.")
         return parts.geturl()
 
     def _redact_url(self, url: str) -> str:
@@ -196,6 +222,39 @@ class OnboardingService:
         if "token" in path.lower():
             return f"{parts.scheme}://{parts.netloc}{quote(path)}"
         return parts.geturl()
+
+    def _build_url_details(self, canonical_url: str) -> ImportProfileDetails:
+        parts = urlsplit(canonical_url)
+        inferred_name = _infer_remote_profile_name(parts)
+        return ImportProfileDetails(
+            profile_name=inferred_name,
+            server_hostname=parts.hostname,
+            server_locked=parts.hostname is not None,
+        )
+
+    def _build_file_preview_warnings(
+        self,
+        details: ImportProfileDetails,
+    ) -> tuple[str, ...]:
+        warnings: list[str] = []
+        if details.auth_requires_password:
+            warnings.append(
+                "This profile still requires authentication during connection."
+            )
+        return tuple(warnings)
+
+    def _build_remote_preview_warnings(self, canonical_url: str) -> tuple[str, ...]:
+        parts = urlsplit(canonical_url)
+        warnings: list[str] = []
+        if parts.query:
+            warnings.append(
+                "Sensitive query parameters are redacted in previews and support bundles."
+            )
+        if not parts.path.lower().endswith(".ovpn"):
+            warnings.append(
+                "The final profile name may change after download because the URL does not end with .ovpn."
+            )
+        return tuple(warnings)
 
 
 _DIRECTIVE_PATTERN = re.compile(r"^\s*([A-Za-z0-9_.-]+)(?:\s+(.*?))?\s*$")
@@ -267,3 +326,12 @@ def _split_first_token(value: str) -> tuple[str, str]:
 
 def _strip_quotes(value: str) -> str:
     return value.strip().strip('"').strip("'")
+
+
+def _infer_remote_profile_name(parts) -> str:
+    filename = Path(parts.path).name
+    if filename:
+        return filename
+    if parts.hostname:
+        return f"{parts.hostname}.ovpn"
+    return "remote-profile.ovpn"

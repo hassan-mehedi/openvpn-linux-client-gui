@@ -1,6 +1,7 @@
 import pytest
 
 from core.models import (
+    AppSettings,
     AttentionFieldType,
     AttentionRequest,
     SessionDescriptor,
@@ -14,9 +15,11 @@ class FakeSessionBackend:
     def __init__(self, *, requires_input: bool = False) -> None:
         self.requires_input = requires_input
         self.created = 0
+        self.connect_state = SessionPhase.CONNECTED
         self.status_state = SessionPhase.CONNECTED
         self.subscriber = None
         self.sessions: list[SessionDescriptor] = []
+        self.disconnect_calls: list[str] = []
 
     def list_sessions(self) -> tuple[SessionDescriptor, ...]:
         return tuple(self.sessions)
@@ -41,10 +44,11 @@ class FakeSessionBackend:
         return SessionDescriptor(
             id=session_id,
             profile_id="profile-1",
-            state=SessionPhase.CONNECTED,
+            state=self.connect_state,
         )
 
     def disconnect(self, session_id: str) -> SessionDescriptor:
+        self.disconnect_calls.append(session_id)
         return SessionDescriptor(
             id=session_id,
             profile_id="profile-1",
@@ -112,6 +116,22 @@ class FakeConnectionPreparationBackend:
         if self.error is not None:
             raise self.error
         self.prepared_profile_ids.append(profile_id)
+
+
+class FakeSettingsBackend:
+    def __init__(self, timeout: int) -> None:
+        self.timeout = timeout
+
+    def load(self) -> AppSettings:
+        return AppSettings(connection_timeout=self.timeout)
+
+
+class FakeClock:
+    def __init__(self, now: float = 0.0) -> None:
+        self.now = now
+
+    def __call__(self) -> float:
+        return self.now
 
 
 class FakePasswordAttentionBackend(FakeAttentionBackend):
@@ -204,6 +224,26 @@ def test_session_lifecycle_can_retry_after_profile_preparation_error() -> None:
     assert connection_preparation.prepared_profile_ids == ["profile-1"]
 
 
+def test_session_lifecycle_can_reset_error_state_without_losing_selection() -> None:
+    service = SessionLifecycleService(
+        FakeSessionBackend(),
+        FakeAttentionBackend(),
+        connection_preparation=FakeConnectionPreparationBackend(
+            error=RuntimeError("Assigned proxy is missing.")
+        ),
+    )
+
+    with pytest.raises(RuntimeError, match="Assigned proxy is missing."):
+        service.prepare_connection("profile-1")
+
+    reset = service.reset_error()
+
+    assert reset.state is SessionPhase.IDLE
+    assert reset.active_session is None
+    assert reset.last_error is None
+    assert reset.selected_profile_id == "profile-1"
+
+
 def test_session_lifecycle_waits_for_input_and_resumes() -> None:
     session_backend = FakeSessionBackend(requires_input=True)
     attention_backend = FakeAttentionBackend()
@@ -247,6 +287,94 @@ def test_session_lifecycle_refreshes_backend_state() -> None:
     snapshot = service.refresh_status()
 
     assert snapshot.state is SessionPhase.RECONNECTING
+
+
+def test_session_lifecycle_enforces_connection_timeout_budget() -> None:
+    session_backend = FakeSessionBackend()
+    session_backend.connect_state = SessionPhase.CONNECTING
+    session_backend.status_state = SessionPhase.CONNECTING
+    session_backend.sessions = [
+        SessionDescriptor(
+            id="session-1",
+            profile_id="profile-1",
+            state=SessionPhase.CONNECTING,
+        )
+    ]
+    clock = FakeClock(now=100.0)
+    service = SessionLifecycleService(
+        session_backend,
+        FakeAttentionBackend(),
+        settings_backend=FakeSettingsBackend(timeout=5),
+        monotonic_now=clock,
+    )
+
+    connecting = service.connect("profile-1")
+    assert connecting.state is SessionPhase.CONNECTING
+
+    clock.now = 106.0
+    timed_out = service.refresh_status()
+
+    assert timed_out.state is SessionPhase.ERROR
+    assert timed_out.active_session is None
+    assert timed_out.last_error == "Connection timed out after 5 seconds."
+    assert session_backend.disconnect_calls == ["session-1"]
+    assert service.restore_existing_session("profile-1").state is SessionPhase.ERROR
+
+
+def test_session_lifecycle_pauses_timeout_while_waiting_for_input() -> None:
+    session_backend = FakeSessionBackend()
+    session_backend.connect_state = SessionPhase.WAITING_FOR_INPUT
+    session_backend.status_state = SessionPhase.WAITING_FOR_INPUT
+    clock = FakeClock(now=10.0)
+    service = SessionLifecycleService(
+        session_backend,
+        FakeAttentionBackend(),
+        settings_backend=FakeSettingsBackend(timeout=5),
+        monotonic_now=clock,
+    )
+
+    waiting = service.connect("profile-1")
+    assert waiting.state is SessionPhase.WAITING_FOR_INPUT
+
+    clock.now = 20.0
+    refreshed = service.refresh_status()
+
+    assert refreshed.state is SessionPhase.WAITING_FOR_INPUT
+    assert refreshed.last_error is None
+    assert session_backend.disconnect_calls == []
+
+
+def test_session_lifecycle_enforces_connection_timeout_during_reconnect() -> None:
+    session_backend = FakeSessionBackend()
+    session_backend.sessions = [
+        SessionDescriptor(
+            id="session-1",
+            profile_id="profile-1",
+            state=SessionPhase.CONNECTED,
+        )
+    ]
+    clock = FakeClock(now=50.0)
+    service = SessionLifecycleService(
+        session_backend,
+        FakeAttentionBackend(),
+        settings_backend=FakeSettingsBackend(timeout=5),
+        monotonic_now=clock,
+    )
+
+    connected = service.restore_existing_session("profile-1")
+    assert connected.state is SessionPhase.CONNECTED
+
+    session_backend.status_state = SessionPhase.RECONNECTING
+    reconnecting = service.refresh_status()
+    assert reconnecting.state is SessionPhase.RECONNECTING
+
+    clock.now = 56.0
+    timed_out = service.refresh_status()
+
+    assert timed_out.state is SessionPhase.ERROR
+    assert timed_out.active_session is None
+    assert timed_out.last_error == "Connection timed out after 5 seconds."
+    assert session_backend.disconnect_calls == ["session-1"]
 
 
 def test_session_lifecycle_watches_active_session_updates() -> None:

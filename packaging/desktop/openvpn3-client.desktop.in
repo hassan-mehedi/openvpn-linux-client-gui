@@ -1,8 +1,11 @@
 [Desktop Entry]
 Type=Application
-Name=OpenVPN 3 Linux
-Exec=ovpn3-linux-gui
+Version=1.0
+Name=@APP_NAME@
+Comment=Native Linux GUI and CLI for OpenVPN 3 Linux
+Exec=@GUI_EXECUTABLE@ %u
 Categories=Network;
 MimeType=application/x-openvpn-profile;x-scheme-handler/openvpn;
-Icon=network-vpn
-
+Icon=@ICON_NAME@
+StartupWMClass=@APP_ID@
+Terminal=false

@@ -19,6 +19,7 @@ BACKEND_SERVICE_NAME = "net.openvpn.v3.backends"
 ROOT_OBJECT_PATH = "/net/openvpn/v3"
 DBUS_PROPERTIES_INTERFACE = "org.freedesktop.DBus.Properties"
 DBUS_PEER_INTERFACE = "org.freedesktop.DBus.Peer"
+DBUS_INTROSPECTABLE_INTERFACE = "org.freedesktop.DBus.Introspectable"
 
 
 class DBusTransport(Protocol):
@@ -107,6 +108,15 @@ class DBusClient:
             interface=DBUS_PEER_INTERFACE,
             method="Ping",
         )
+
+    def introspect(self, *, service: str, object_path: str) -> str:
+        payload = self.call_method(
+            service=service,
+            object_path=object_path,
+            interface=DBUS_INTROSPECTABLE_INTERFACE,
+            method="Introspect",
+        )
+        return str(payload or "")
 
     def subscribe_signal(
         self,

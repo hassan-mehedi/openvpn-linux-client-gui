@@ -7,7 +7,6 @@ from typing import Any, Callable
 
 from core.models import SessionDescriptor, SessionPhase, SessionTelemetrySample
 from openvpn3.dbus_client import (
-    LOG_SERVICE_NAME,
     SESSION_SERVICE_NAME,
     DBusClient,
     opaque_identifier,
@@ -16,7 +15,6 @@ from openvpn3.dbus_client import (
 
 SESSION_INTERFACE = "net.openvpn.v3.sessions"
 SESSION_MANAGER_PATH = "/net/openvpn/v3/sessions"
-LOG_SIGNAL_INTERFACE = "net.openvpn.v3.backends"
 
 
 class SessionService:
@@ -209,9 +207,9 @@ class SessionService:
                 )
 
         return self._client.subscribe_signal(
-            service=LOG_SERVICE_NAME,
+            service=SESSION_SERVICE_NAME,
             object_path=object_path,
-            interface=LOG_SIGNAL_INTERFACE,
+            interface=SESSION_INTERFACE,
             signal_name="StatusChange",
             callback=wrapped,
         )

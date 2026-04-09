@@ -75,6 +75,13 @@ class ProxyType(StrEnum):
     SOCKS5 = "socks5"
 
 
+class DiagnosticStatus(StrEnum):
+    PASS = "pass"
+    WARN = "warn"
+    FAIL = "fail"
+    INFO = "info"
+
+
 @dataclass(slots=True, frozen=True)
 class CapabilityState:
     key: str
@@ -234,6 +241,8 @@ class ImportPreview:
     redacted_location: str | None
     content_hash: str | None = None
     duplicate_profile_id: str | None = None
+    duplicate_profile_name: str | None = None
+    duplicate_reason: str | None = None
     warnings: tuple[str, ...] = ()
     details: ImportProfileDetails | None = None
 
@@ -244,6 +253,51 @@ class SavedCredentialState:
     password_saved: bool = False
 
 
+@dataclass(slots=True, frozen=True)
+class DiagnosticCheck:
+    key: str
+    label: str
+    status: DiagnosticStatus
+    detail: str
+
+@dataclass(slots=True, frozen=True)
+class DiagnosticWorkflowStep:
+    title: str
+    detail: str
+
+
+@dataclass(slots=True, frozen=True)
+class DiagnosticWorkflow:
+    key: str
+    label: str
+    status: DiagnosticStatus
+    summary: str
+    steps: tuple[DiagnosticWorkflowStep, ...]
+
+
+@dataclass(slots=True, frozen=True)
+class DBusInterfaceValidation:
+    label: str
+    service: str
+    object_path: str
+    interface: str
+    status: DiagnosticStatus
+    detail: str
+    methods: tuple[str, ...] = ()
+    properties: tuple[str, ...] = ()
+    signals: tuple[str, ...] = ()
+    missing_methods: tuple[str, ...] = ()
+    missing_properties: tuple[str, ...] = ()
+    missing_signals: tuple[str, ...] = ()
+
+
+@dataclass(slots=True, frozen=True)
+class DBusValidationReport:
+    status: DiagnosticStatus
+    summary: str
+    interfaces: tuple[DBusInterfaceValidation, ...]
+    validated_at: datetime = field(default_factory=utc_now)
+
 
 @dataclass(slots=True, frozen=True)
 class DiagnosticsSnapshot:
@@ -253,6 +307,10 @@ class DiagnosticsSnapshot:
     desktop_environment: str
     reachable_services: dict[str, bool]
     capabilities: tuple[CapabilityState, ...]
+    environment_checks: tuple[DiagnosticCheck, ...]
+    troubleshooting_items: tuple[DiagnosticCheck, ...]
+    guided_workflows: tuple[DiagnosticWorkflow, ...]
     recent_logs: tuple[str, ...]
     profiles: tuple[Profile, ...]
     settings: AppSettings
+    dbus_validation: DBusValidationReport | None = None

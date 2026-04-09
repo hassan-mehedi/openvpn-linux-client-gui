@@ -1,0 +1,9 @@
+Format: https://www.debian.org/doc/packaging-manuals/copyright-format/1.0/
+Upstream-Name: openvpn3-client-linux
+Source: local
+
+Files: *
+Copyright:
+ 2026 Codex
+License: Proprietary
+ This project is not currently distributed under an open source license.

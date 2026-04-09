@@ -200,3 +200,23 @@ def test_catalog_rejects_unknown_proxy_assignment(tmp_path: Path) -> None:
         assert "missing-proxy" in str(exc)
     else:  # pragma: no cover - defensive branch for a missing exception
         raise AssertionError("Expected unknown proxy assignment to fail.")
+
+
+def test_catalog_resets_local_profile_overrides(tmp_path: Path) -> None:
+    profile = Profile(id="profile-1", name="Alpha", source=ImportSource.FILE)
+    backend = FakeProfileBackend((profile,))
+    proxies = FakeProxyBackend(("proxy-1",))
+    service = ProfileCatalogService(
+        backend,
+        FakeOnboarding(),
+        config_dir=tmp_path,
+        proxy_backend=proxies,
+    )
+    service.rename_profile("profile-1", "Renamed")
+    service.assign_proxy("profile-1", "proxy-1")
+
+    service.reset_profile_overrides("profile-1")
+
+    snapshot = service.list_profiles()
+    assert snapshot.profiles[0].name == "Alpha"
+    assert snapshot.profiles[0].assigned_proxy_id is None

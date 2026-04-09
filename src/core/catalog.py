@@ -139,6 +139,13 @@ class ProfileCatalogService:
                 raise KeyError(f"Unknown proxy: {normalized}")
         self._update_profile_override(profile_id, assigned_proxy_id=normalized or None)
 
+    def reset_profile_overrides(self, profile_id: str) -> None:
+        self._update_profile_override(
+            profile_id,
+            name=None,
+            assigned_proxy_id=None,
+        )
+
     def clear_proxy_assignments(self, proxy_id: str) -> None:
         overrides = self._load_profile_overrides()
         changed = False

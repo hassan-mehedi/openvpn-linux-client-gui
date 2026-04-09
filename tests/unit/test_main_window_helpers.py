@@ -2,7 +2,9 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from app.windows.main_window import (
+    _diagnostic_workflow_detail,
     _capability_detail,
+    _diagnostic_status_label,
     _default_support_bundle_path,
     _diagnostics_summary,
     _display_capability_name,
@@ -19,7 +21,12 @@ from app.windows.main_window import (
     _refresh_tooltip_for_page,
     _settings_signature,
     _should_run_debounced_action,
+    _should_show_summary,
     _short_service_name,
+    _status_presentation,
+    _summary_action_labels,
+    _summary_detail_for,
+    _summary_title_for,
     _subtitle_for_page,
     _telemetry_detail,
     _stats_body_for,
@@ -28,6 +35,11 @@ from app.windows.main_window import (
 from core.models import (
     AppSettings,
     CapabilityState,
+    DiagnosticCheck,
+    DiagnosticStatus,
+    DiagnosticWorkflow,
+    DiagnosticWorkflowStep,
+    DiagnosticsSnapshot,
     ImportSource,
     Profile,
     SessionDescriptor,
@@ -87,6 +99,59 @@ def test_stats_copy_prefers_backend_status_when_available() -> None:
     )
     assert _stats_title_for(snapshot) == "Re-establishing the secure tunnel"
     assert _stats_body_for(snapshot) == "Waiting for server response."
+
+
+def test_summary_visibility_allows_persistent_error_state() -> None:
+    snapshot = SessionSnapshot(
+        state=SessionPhase.ERROR,
+        selected_profile_id="profile-1",
+        active_session=None,
+        attention_requests=(),
+        last_error="Connection timed out after 5 seconds.",
+    )
+
+    assert _should_show_summary(snapshot) is True
+
+
+def test_summary_copy_guides_recovery_for_error_state() -> None:
+    snapshot = SessionSnapshot(
+        state=SessionPhase.ERROR,
+        selected_profile_id="profile-1",
+        active_session=None,
+        attention_requests=(),
+        last_error="Connection timed out after 5 seconds.",
+    )
+
+    assert _summary_title_for(snapshot, "Office VPN") == "Office VPN"
+    assert (
+        _summary_detail_for(snapshot)
+        == "Connection timed out after 5 seconds. Retry the connection or dismiss this error."
+    )
+    assert _summary_action_labels(snapshot) == ("Retry", "Dismiss")
+
+
+def test_summary_copy_guides_connecting_state() -> None:
+    snapshot = _snapshot(state=SessionPhase.CONNECTING)
+
+    assert (
+        _summary_detail_for(snapshot)
+        == "OpenVPN is negotiating the secure tunnel. You can cancel if this stalls."
+    )
+    assert _summary_action_labels(snapshot) == ("Refresh", "Cancel")
+
+
+def test_status_presentation_uses_recovery_and_action_required_labels() -> None:
+    waiting = _snapshot(state=SessionPhase.WAITING_FOR_INPUT)
+    error = SessionSnapshot(
+        state=SessionPhase.ERROR,
+        selected_profile_id="profile-1",
+        active_session=None,
+        attention_requests=(),
+        last_error="TLS 1.3 is unavailable.",
+    )
+
+    assert _status_presentation(waiting) == ("ACTION REQUIRED", "status-paused")
+    assert _status_presentation(error) == ("NEEDS RECOVERY", "status-disconnected")
 
 
 def test_format_bytes_uses_human_units() -> None:
@@ -230,6 +295,7 @@ def test_refresh_tooltip_for_page_matches_current_view() -> None:
 
 def test_display_capability_name_prefers_friendly_labels() -> None:
     assert _display_capability_name("dco") == "Data Channel Offload"
+    assert _display_capability_name("posture") == "Device Posture"
 
 
 def test_capability_detail_prefers_reason_text() -> None:
@@ -247,9 +313,60 @@ def test_short_service_name_uses_last_dbus_segment() -> None:
 
 
 def test_diagnostics_summary_includes_platform_details() -> None:
+    snapshot = DiagnosticsSnapshot(
+        app_version="0.1.0",
+        os_release="Fedora Linux 42",
+        kernel="6.8.0",
+        desktop_environment="GNOME",
+        reachable_services={},
+        capabilities=(),
+        environment_checks=(),
+        troubleshooting_items=(
+            DiagnosticCheck(
+                key="resolver",
+                label="Resolver",
+                status=DiagnosticStatus.WARN,
+                detail="systemd-resolved missing",
+            ),
+        ),
+        guided_workflows=(),
+        recent_logs=(),
+        profiles=(),
+        settings=AppSettings(),
+    )
     assert (
-        _diagnostics_summary("0.1.0", "Fedora Linux 42", "6.8.0")
-        == "App 0.1.0 running on Fedora Linux 42 with kernel 6.8.0."
+        _diagnostics_summary(snapshot)
+        == "App 0.1.0 running on Fedora Linux 42 with kernel 6.8.0; 1 diagnostic issue(s) need attention."
+    )
+
+
+def test_diagnostic_status_label_uses_short_ui_copy() -> None:
+    assert _diagnostic_status_label(DiagnosticStatus.PASS) == "Pass"
+    assert _diagnostic_status_label(DiagnosticStatus.FAIL) == "Action"
+
+
+def test_diagnostic_workflow_detail_formats_summary_and_steps() -> None:
+    workflow = DiagnosticWorkflow(
+        key="resolver",
+        label="Repair VPN DNS handling",
+        status=DiagnosticStatus.WARN,
+        summary="Resolver support is missing.",
+        steps=(
+            DiagnosticWorkflowStep(
+                title="Use local DNS",
+                detail="Avoid the global resolver dependency.",
+            ),
+            DiagnosticWorkflowStep(
+                title="Install resolver integration",
+                detail="Enable systemd-resolved support before retrying.",
+            ),
+        ),
+    )
+
+    assert _diagnostic_workflow_detail(workflow) == (
+        "Resolver support is missing.\n"
+        "1. Use local DNS: Avoid the global resolver dependency.\n"
+        "2. Install resolver integration: Enable systemd-resolved support before retrying."
     )
 
 
