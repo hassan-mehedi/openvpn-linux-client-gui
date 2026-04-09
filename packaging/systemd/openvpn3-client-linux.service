@@ -1,0 +1,23 @@
+[Unit]
+Description=OpenVPN 3 Client Linux (system mode)
+Documentation=https://github.com/user/openvpn3-client-linux
+After=network-online.target openvpn3-session@.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/ovpn-gui sessions connect --profile %I
+ExecStop=/usr/bin/ovpn-gui sessions disconnect --profile %I
+Restart=on-failure
+RestartSec=10
+TimeoutStartSec=60
+
+# Security hardening
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=read-only
+PrivateTmp=yes
+ReadWritePaths=/run/openvpn3
+
+[Install]
+WantedBy=default.target

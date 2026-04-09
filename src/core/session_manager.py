@@ -66,6 +66,11 @@ class SettingsBackend(Protocol):
         """Return the current application settings."""
 
 
+class AppStateBackend(Protocol):
+    def record_connected_profile(self, profile_id: str) -> None:
+        """Record the most recently connected profile."""
+
+
 class ConnectionPreparationBackend(Protocol):
     def prepare_profile(self, profile_id: str) -> None:
         """Apply runtime profile settings before session creation."""
@@ -91,6 +96,7 @@ class SessionLifecycleService:
         settings_backend: SettingsBackend | None = None,
         profile_credentials: ProfileCredentialBackend | None = None,
         connection_preparation: ConnectionPreparationBackend | None = None,
+        app_state: AppStateBackend | None = None,
         state_machine: SessionStateMachine | None = None,
         monotonic_now: Callable[[], float] | None = None,
     ) -> None:
@@ -99,6 +105,7 @@ class SessionLifecycleService:
         self._settings_backend = settings_backend
         self._profile_credentials = profile_credentials
         self._connection_preparation = connection_preparation
+        self._app_state = app_state
         self._state_machine = state_machine or SessionStateMachine()
         self._monotonic_now = monotonic_now or monotonic
         self._active_session: SessionDescriptor | None = None
@@ -188,6 +195,15 @@ class SessionLifecycleService:
         self._state_machine.apply(SessionEvent.REQUEST_CONNECT)
         assert self._active_session is not None
         self._apply_backend_session(self._session_backend.connect(self._active_session.id))
+
+        if self._state_machine.state is SessionPhase.CONNECTED and self._app_state is not None:
+            try:
+                pid = self._state_machine.selected_profile_id
+                if pid is not None:
+                    self._app_state.record_connected_profile(pid)
+            except Exception:
+                pass
+
         return self.snapshot()
 
     def submit_attention_input(self, field_id: str, value: str) -> SessionSnapshot:

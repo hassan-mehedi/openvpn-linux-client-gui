@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from core.app_state import AppStateService
+from core.autostart import AutostartService
 from core.catalog import ProfileCatalogService
 from core.connection_preparation import ConnectionPreparationService
 from core.diagnostics import DiagnosticsService
@@ -55,6 +57,8 @@ class ServiceContainer:
     diagnostics: DiagnosticsService
     profile_catalog: ProfileCatalogService
     session_lifecycle: SessionLifecycleService
+    app_state: AppStateService
+    autostart: AutostartService
 
 
 def build_live_services() -> ServiceContainer:
@@ -93,12 +97,15 @@ def build_live_services() -> ServiceContainer:
         proxies,
         configuration,
     )
+    app_state = AppStateService()
+    autostart = AutostartService()
     session_lifecycle = SessionLifecycleService(
         session,
         attention,
         settings_backend=settings,
         profile_credentials=profile_secrets,
         connection_preparation=connection_preparation,
+        app_state=app_state,
     )
     return ServiceContainer(
         configuration=configuration,
@@ -116,4 +123,6 @@ def build_live_services() -> ServiceContainer:
         diagnostics=diagnostics,
         profile_catalog=profile_catalog,
         session_lifecycle=session_lifecycle,
+        app_state=app_state,
+        autostart=autostart,
     )

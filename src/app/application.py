@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from core.bootstrap import build_live_services
-from core.models import ThemeMode
+from core.models import LaunchBehavior, ThemeMode
 
 try:
     import gi
@@ -62,9 +62,34 @@ class OpenVPNApplication:
                     Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION,
                 )
 
+        def _connect_latest(svc):
+            result = svc.profile_catalog.list_profiles()
+            if result.profiles:
+                sorted_profiles = sorted(
+                    result.profiles,
+                    key=lambda p: p.last_used or p.imported_at,
+                    reverse=True,
+                )
+                svc.session_lifecycle.connect(sorted_profiles[0].id)
+
+        def _restore_connection(svc):
+            profile_id = svc.app_state.last_connected_profile_id()
+            if profile_id is not None:
+                svc.session_lifecycle.connect(profile_id)
+
         def on_activate(application: Adw.Application) -> None:
             window = OpenVPNMainWindow(application, services)
             window.present()
+
+            try:
+                settings = services.settings.load()
+                behavior = settings.launch_behavior
+                if behavior is LaunchBehavior.CONNECT_LATEST:
+                    _connect_latest(services)
+                elif behavior is LaunchBehavior.RESTORE_CONNECTION:
+                    _restore_connection(services)
+            except Exception:
+                pass  # startup behavior is best-effort
 
         app.connect("startup", on_startup)
         app.connect("activate", on_activate)

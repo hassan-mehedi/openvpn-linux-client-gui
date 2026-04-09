@@ -15,4 +15,9 @@
 | GTK profile list UI | `parity-direct` | initial implementation | Main window lists profiles, supports search, import, refresh, connect, and delete actions. |
 | Connect flow UI | `parity-direct` | challenge flow implemented | Main window now follows active session state, surfaces explicit connect/pause/resume/disconnect and recovery actions, keeps connecting/reconnecting/paused/error states visible in the summary shell, drives multi-field credential/challenge prompts through the verified OpenVPN 3 input queue, and can save password-style prompts through the secure secret-store boundary. |
 | GUI navigation shell | `parity-linux-adapted` | initial implementation | The desktop shell now has dedicated Profiles, Settings, and Diagnostics views instead of a single-screen layout. |
-| Native packaging | `parity-linux-adapted` | deferred | Packaging directories are prepared for DEB/RPM work. |
+| XDG autostart integration | `parity-linux-adapted` | implemented | AutostartService syncs desktop entry based on launch_behavior setting. |
+| Last connected profile tracking | `parity-linux-adapted` | implemented | AppStateService persists to XDG state dir for restore-connection behavior. |
+| Startup connection behavior | `parity-linux-adapted` | implemented | Application executes connect-latest or restore-connection on startup. |
+| System mode (systemd) | `parity-linux-adapted` | packaging assets created | Template user service unit in packaging/systemd/. |
+| System mode (polkit) | `parity-linux-adapted` | packaging assets created | Policy file in packaging/polkit/. |
+| Native packaging | `parity-linux-adapted` | packaging assets created | DEB/RPM recipes, systemd unit, polkit policy, desktop/icon/MIME assets. |

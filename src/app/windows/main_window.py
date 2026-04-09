@@ -834,6 +834,10 @@ def OpenVPNMainWindow(application, services: ServiceContainer):  # noqa: N802
         except Exception as exc:  # pragma: no cover - filesystem dependent
             show_toast(f"Could not save settings: {exc}")
             return False
+        try:
+            services.autostart.sync(settings.launch_behavior)
+        except Exception:
+            pass
         last_saved_settings_signature = settings_signature
         apply_window_theme(settings.theme)
         show_toast("Settings updated.")

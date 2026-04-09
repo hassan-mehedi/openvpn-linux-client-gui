@@ -66,9 +66,15 @@ The repo now includes first-pass native packaging recipes:
 - desktop, icon, and MIME assets for launcher and URI integration
 - narrow post-install and post-remove cache refresh hooks
 
-The current package implementation is intentionally limited to the unprivileged
-desktop surface. Optional systemd or polkit integrations remain isolated and
-are still future work.
+The following optional system-mode assets are now also available:
+
+- `packaging/systemd/openvpn3-client-linux.service` — template user service
+  unit for connecting profiles at boot via the companion CLI
+- `packaging/polkit/com.openvpn3.clientlinux.policy` — polkit policy defining
+  privileged actions for system-wide profile and connection management
+
+These are NOT installed by default. See the README files in each directory
+for installation and usage instructions.
 
 ## Build Commands
 
