@@ -21,15 +21,15 @@ rpm-build:
 
 .PHONY: rpm-install
 rpm-install:
-	sudo dnf install ~/rpmbuild/RPMS/noarch/openvpn3-client-linux-0.1.0-1.*.noarch.rpm
+	sudo dnf install -y ~/rpmbuild/RPMS/noarch/openvpn3-client-linux-0.1.0-1.*.noarch.rpm
 
 .PHONY: rpm-reinstall
 rpm-reinstall:
-	sudo dnf reinstall ~/rpmbuild/RPMS/noarch/openvpn3-client-linux-0.1.0-1.*.noarch.rpm
+	sudo dnf reinstall -y ~/rpmbuild/RPMS/noarch/openvpn3-client-linux-0.1.0-1.*.noarch.rpm
 
 .PHONY: rpm-uninstall
 rpm-uninstall:
-	sudo dnf remove openvpn3-client-linux
+	sudo dnf remove -y openvpn3-client-linux
 
 .PHONY: deb-build
 deb-build:
@@ -41,4 +41,4 @@ deb-install:
 
 .PHONY: deb-uninstall
 deb-uninstall:
-	sudo dpkg -r openvpn3-client-linux
+	sudo apt-get remove -y openvpn3-client-linux
