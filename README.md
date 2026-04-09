@@ -47,6 +47,14 @@ sudo apt install gir1.2-gtk-4.0 gir1.2-adw-1 gir1.2-secret-1 python3-gi python3-
 
 ## Installation
 
+### Quick install (recommended)
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/hassan-mehedi/openvpn-linux-client-gui/main/install.sh | bash
+```
+
+This automatically detects your distro, installs OpenVPN 3 Linux if needed, builds and installs the package.
+
 ### From source (development)
 
 ```bash
@@ -55,30 +63,31 @@ cd openvpn3-client-linux
 uv sync --dev
 ```
 
-### DEB package
+### DEB package (Debian/Ubuntu)
 
 ```bash
-dpkg-buildpackage -us -uc -b
-sudo dpkg -i ../openvpn3-client-linux_0.1.0_all.deb
+make deb-build
+make deb-install
+
+# Uninstall
+make deb-uninstall
 ```
 
 ### RPM package (Fedora)
 
 ```bash
-# Install build dependencies
+# Install build dependencies (one-time)
 sudo dnf install python3-build rpm-build pyproject-rpm-macros python3-devel python3-setuptools python3-wheel
 
-# Build
-mkdir -p ~/rpmbuild/{BUILD,BUILDROOT,RPMS,SOURCES,SPECS,SRPMS}
-python3 -m build --sdist --no-isolation
-cp dist/openvpn3_client_linux-0.1.0.tar.gz ~/rpmbuild/SOURCES/
-rpmbuild -ba packaging/rpm/openvpn3-client-linux.spec
+# Build and install
+make rpm-build
+make rpm-install
 
-# Install (first time)
-sudo rpm -i ~/rpmbuild/RPMS/noarch/openvpn3-client-linux-0.1.0-1.*.noarch.rpm
+# Reinstall after rebuilding
+make rpm-reinstall
 
-# Reinstall (if already installed)
-sudo rpm -e openvpn3-client-linux && sudo rpm -i ~/rpmbuild/RPMS/noarch/openvpn3-client-linux-0.1.0-1.*.noarch.rpm
+# Uninstall
+make rpm-uninstall
 ```
 
 ## Usage

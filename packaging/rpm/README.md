@@ -22,23 +22,18 @@ updates or registration tasks that the platform requires.
 ## Local Build
 
 ```bash
-# Install build dependencies
+# Install build dependencies (one-time)
 sudo dnf install python3-build rpm-build pyproject-rpm-macros python3-devel python3-setuptools python3-wheel
 
-# Build
-mkdir -p ~/rpmbuild/{BUILD,BUILDROOT,RPMS,SOURCES,SPECS,SRPMS}
-python3 -m build --sdist --no-isolation
-cp dist/openvpn3_client_linux-0.1.0.tar.gz ~/rpmbuild/SOURCES/
-rpmbuild -ba packaging/rpm/openvpn3-client-linux.spec
+# Build and install
+make rpm-build
+make rpm-install
 
-# Install (first time)
-sudo rpm -i ~/rpmbuild/RPMS/noarch/openvpn3-client-linux-0.1.0-1.*.noarch.rpm
-
-# Reinstall (if already installed)
-sudo rpm -e openvpn3-client-linux && sudo rpm -i ~/rpmbuild/RPMS/noarch/openvpn3-client-linux-0.1.0-1.*.noarch.rpm
+# Reinstall after rebuilding
+make rpm-reinstall
 
 # Uninstall
-sudo rpm -e openvpn3-client-linux
+make rpm-uninstall
 ```
 
 ## Validation Checklist

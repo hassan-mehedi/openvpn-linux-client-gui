@@ -81,19 +81,19 @@ for installation and usage instructions.
 Debian and Ubuntu:
 
 ```bash
-dpkg-buildpackage -us -uc -b
+make deb-build
+make deb-install
 ```
 
 Fedora-family:
 
 ```bash
-sudo dnf install python3-build rpm-build pyproject-rpm-macros python3-devel python3-setuptools python3-wheel
-mkdir -p ~/rpmbuild/{BUILD,BUILDROOT,RPMS,SOURCES,SPECS,SRPMS}
-python3 -m build --sdist --no-isolation
-cp dist/openvpn3_client_linux-0.1.0.tar.gz ~/rpmbuild/SOURCES/
-rpmbuild -ba packaging/rpm/openvpn3-client-linux.spec
-sudo rpm -i ~/rpmbuild/RPMS/noarch/openvpn3-client-linux-0.1.0-1.*.noarch.rpm
+make rpm-build
+make rpm-install
 ```
+
+See the project Makefile for all available targets (`rpm-reinstall`,
+`rpm-uninstall`, `deb-uninstall`).
 
 Both packaging flows rely on the shared asset helper to stage:
 
