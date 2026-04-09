@@ -1,6 +1,6 @@
 [Unit]
 Description=OpenVPN 3 Client Linux (system mode)
-Documentation=https://github.com/user/openvpn3-client-linux
+Documentation=https://github.com/hassan-mehedi/openvpn-linux-client-gui
 After=network-online.target openvpn3-session@.service
 Wants=network-online.target
 

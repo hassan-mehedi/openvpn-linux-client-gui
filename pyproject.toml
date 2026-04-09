@@ -10,7 +10,7 @@ readme = "README.md"
 requires-python = ">=3.11"
 license = { text = "CC-BY-NC-4.0" }
 authors = [
-  { name = "Mehedi" }
+  { name = "Mehedi Hassan", email = "howlader.mehedihassan@gmail.com" }
 ]
 dependencies = []
 

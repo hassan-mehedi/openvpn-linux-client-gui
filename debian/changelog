@@ -2,4 +2,4 @@ openvpn3-client-linux (0.1.0-1) unstable; urgency=medium
 
   * Initial native package recipe for the OpenVPN 3 Linux GUI and CLI.
 
- -- Codex <codex@example.invalid>  Thu, 09 Apr 2026 00:00:00 +0600
+ -- Mehedi Hassan <howlader.mehedihassan@gmail.com>  Thu, 09 Apr 2026 00:00:00 +0600

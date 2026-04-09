@@ -4,7 +4,7 @@ Release:        1%{?dist}
 Summary:        Native Linux GUI and CLI for OpenVPN 3 Linux
 
 License:        CC-BY-NC-4.0
-URL:            https://example.invalid/openvpn3-client-linux
+URL:            https://github.com/hassan-mehedi/openvpn-linux-client-gui
 Source0:        openvpn3_client_linux-%{version}.tar.gz
 BuildArch:      noarch
 
@@ -72,5 +72,5 @@ fi
 %{_datadir}/mime/packages/openvpn3-client-linux.xml
 
 %changelog
-* Thu Apr 09 2026 Mehedi - 0.1.0-1
+* Thu Apr 09 2026 Mehedi Hassan <howlader.mehedihassan@gmail.com> - 0.1.0-1
 - Initial native package recipe for the OpenVPN 3 Linux GUI and CLI

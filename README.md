@@ -50,7 +50,7 @@ sudo apt install gir1.2-gtk-4.0 gir1.2-adw-1 gir1.2-secret-1 python3-gi python3-
 ### From source (development)
 
 ```bash
-git clone https://github.com/user/openvpn3-client-linux.git
+git clone https://github.com/hassan-mehedi/openvpn-linux-client-gui.git
 cd openvpn3-client-linux
 uv sync --dev
 ```
