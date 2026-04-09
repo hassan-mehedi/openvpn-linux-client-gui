@@ -8,9 +8,9 @@ version = "0.1.0"
 description = "Native Linux GUI and CLI for OpenVPN 3 Linux"
 readme = "README.md"
 requires-python = ">=3.11"
-license = { text = "Proprietary" }
+license = { text = "CC-BY-NC-4.0" }
 authors = [
-  { name = "Codex" }
+  { name = "Mehedi" }
 ]
 dependencies = []
 
