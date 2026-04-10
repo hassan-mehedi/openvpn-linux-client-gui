@@ -16,6 +16,8 @@ The project integrates directly with the OpenVPN 3 Linux D-Bus service model —
 - **Diagnostics** — service reachability, environment checks, guided recovery workflows, redacted support bundle export
 - **Launch behavior** — XDG autostart with connect-latest or restore-last-connection on startup
 - **Desktop integration** — `.ovpn` file association, `openvpn://` URI handler, light/dark theme
+- **Window controls** — custom minimize, maximize, and close buttons in the top bar
+- **Background close behavior** — optional close-to-tray/background preference with native StatusNotifier support where available and launcher/notification fallback elsewhere
 - **Companion CLI** — full automation surface for profiles, sessions, settings, proxies, and diagnostics
 - **Native packaging** — DEB and RPM recipes with desktop, icon, and MIME asset staging
 - **System mode** — optional systemd user service and polkit policy for boot-time connections
@@ -236,6 +238,135 @@ When installed via native packages, the app registers:
 - **File association** for `.ovpn` files (`application/x-openvpn-profile`)
 - **URI handler** for `openvpn://import-profile/...` token URLs
 - **XDG autostart** entry (when launch behavior is configured)
+
+When **Close to system tray** is enabled in Settings, closing the window keeps
+the application running in the background instead of terminating it. On
+desktops with a StatusNotifier host, the app registers a real tray icon with
+Show Window and Quit actions. On desktops without one, the app falls back to
+the launcher and background notification.
+
+### Tray Support Matrix
+
+The tray feature uses the Linux **StatusNotifierItem** protocol. Whether the
+icon appears depends more on the desktop environment than on the distro alone.
+
+Support levels used below:
+
+- **Verified**: manually confirmed during project testing
+- **Expected**: not manually verified in this repo yet, but should work when the desktop exposes a StatusNotifier host
+- **Unsupported / limited**: tray icon is not expected to appear unless the user adds extra shell or panel support
+
+#### Verified
+
+- **Fedora 43 / GNOME 49.5**:
+  Verified with the GNOME AppIndicator extension enabled:
+
+  ```bash
+  sudo dnf install gnome-shell-extension-appindicator
+  gnome-extensions enable appindicatorsupport@rgcjonas.gmail.com
+  ```
+
+  Log out and back in if GNOME Shell does not pick it up immediately.
+  Without that extension, GNOME falls back to launcher or notification re-entry
+  instead of showing a real tray icon.
+
+#### Expected
+
+- **Fedora KDE Plasma**:
+  Plasma normally ships a StatusNotifier-capable tray, so no extra tray package
+  is typically required.
+
+- **Fedora Xfce**:
+  Xfce should work when the panel exposes its notification area or status
+  notifier support. If the icon does not appear, add the panel's
+  **Notification Area** item, or install/add `xfce4-statusnotifier-plugin` on
+  older setups.
+
+- **Ubuntu GNOME**:
+  Ubuntu often ships AppIndicator support already. If the tray icon does not
+  appear, install or enable:
+
+  ```bash
+  sudo apt install gnome-shell-extension-appindicator
+  gnome-extensions enable appindicatorsupport@rgcjonas.gmail.com
+  ```
+
+- **Debian GNOME**:
+  Install and enable the same extension:
+
+  ```bash
+  sudo apt install gnome-shell-extension-appindicator
+  gnome-extensions enable appindicatorsupport@rgcjonas.gmail.com
+  ```
+
+- **Ubuntu or Debian KDE Plasma**:
+  No additional tray package is usually needed.
+
+- **Ubuntu or Debian Xfce**:
+  Ensure the panel has the **Notification Area** item enabled. On older Xfce
+  setups, the separate status notifier plugin may still be needed.
+
+- **Cinnamon / MATE**:
+  These desktops usually work when their panel exposes AppIndicator or
+  StatusNotifier support. If the icon does not appear, first verify the panel
+  includes its notification area or tray applet.
+
+#### Unsupported Or Limited
+
+- **GNOME without the AppIndicator/KStatusNotifier extension**:
+  GNOME does not expose StatusNotifier tray icons by default. The app will
+  still keep running in the background, but it is reopened from the launcher or
+  notification rather than from a tray icon.
+
+- **Tiling WMs / minimal sessions without a tray host**:
+  If the session does not provide a StatusNotifier host, the app falls back to
+  background mode only.
+
+### Tray Troubleshooting
+
+Use this checklist when the app closes to background but no tray icon appears:
+
+1. Turn on **Close to system tray** in the app settings.
+2. Confirm your desktop provides a tray host or compatible extension.
+3. For GNOME, verify the extension is enabled:
+
+   ```bash
+   gnome-extensions list --enabled | grep appindicator
+   ```
+
+4. Restart the application after enabling the extension:
+
+   ```bash
+   pkill -f "python3 -m app.main"
+   PYTHONPATH=src python3 -m app.main
+   ```
+
+5. If the tray icon still does not appear, the app will continue to run in the
+   background and can be reopened from the desktop launcher or notification.
+
+## Releases And Updates
+
+For a published build, the cleanest release story is:
+
+- publish signed GitHub Releases with matching DEB and RPM artifacts
+- keep the install script pointed at the latest stable release
+- optionally publish an APT/YUM/DNF repository later if you want native package-manager updates
+
+How users know an update exists:
+
+- GitHub Releases notifications, release notes, and the project changelog
+- package manager update lists if you later ship an APT or RPM repository
+- the installer page or README pointing to the latest release version
+
+How users update:
+
+- **Install script users**: rerun the same `install.sh` command to fetch and install the latest release
+- **DEB users**: download the new `.deb` from Releases and install it over the existing package, or upgrade via APT once a repo exists
+- **RPM users**: install the newer `.rpm` over the existing package, or upgrade with DNF/YUM once a repo exists
+- **Source users**: pull the new tag or branch, then rebuild and reinstall
+
+This project does not currently ship an in-app auto-update service. Native
+package distribution should stay the source of truth for upgrades.
 
 ## System Mode
 

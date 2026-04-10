@@ -42,6 +42,30 @@
   background: rgba(255, 255, 255, 0.22);
 }
 
+.window-control {
+  min-width: 38px;
+  min-height: 38px;
+  padding: 0;
+  border-radius: 19px;
+  background: rgba(255, 255, 255, 0.08);
+  color: #ffffff;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+}
+
+.window-control:hover {
+  background: rgba(255, 255, 255, 0.14);
+  border-color: rgba(255, 255, 255, 0.18);
+}
+
+.window-control:active {
+  background: rgba(255, 255, 255, 0.22);
+}
+
+.window-control-close:hover {
+  background: rgba(217, 72, 42, 0.88);
+  border-color: rgba(255, 255, 255, 0.18);
+}
+
 .shell-switcher {
   margin-left: 18px;
   margin-right: 18px;

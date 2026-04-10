@@ -177,6 +177,7 @@ class AppSettings:
     launch_behavior: LaunchBehavior = LaunchBehavior.NONE
     seamless_tunnel: bool = False
     theme: ThemeMode = ThemeMode.SYSTEM
+    close_to_tray: bool = False
     security_level: SecurityLevel = SecurityLevel.STANDARD
     enforce_tls13: bool = False
     dco: bool = False
@@ -192,6 +193,7 @@ class AppSettings:
             "launch_behavior": self.launch_behavior.value,
             "seamless_tunnel": self.seamless_tunnel,
             "theme": self.theme.value,
+            "close_to_tray": self.close_to_tray,
             "security_level": self.security_level.value,
             "enforce_tls13": self.enforce_tls13,
             "dco": self.dco,
@@ -211,6 +213,7 @@ class AppSettings:
             ),
             seamless_tunnel=bool(data.get("seamless_tunnel", False)),
             theme=ThemeMode(data.get("theme", ThemeMode.SYSTEM)),
+            close_to_tray=bool(data.get("close_to_tray", False)),
             security_level=SecurityLevel(
                 data.get("security_level", SecurityLevel.STANDARD)
             ),

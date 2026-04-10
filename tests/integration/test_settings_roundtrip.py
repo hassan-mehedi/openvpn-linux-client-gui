@@ -19,6 +19,7 @@ def test_settings_full_roundtrip(tmp_path: Path) -> None:
         launch_behavior=LaunchBehavior.RESTORE_CONNECTION,
         seamless_tunnel=True,
         theme=ThemeMode.DARK,
+        close_to_tray=True,
         security_level=SecurityLevel.STRICT,
         enforce_tls13=True,
         dco=True,
@@ -35,6 +36,7 @@ def test_settings_full_roundtrip(tmp_path: Path) -> None:
     assert loaded.launch_behavior is LaunchBehavior.RESTORE_CONNECTION
     assert loaded.seamless_tunnel is True
     assert loaded.theme is ThemeMode.DARK
+    assert loaded.close_to_tray is True
     assert loaded.security_level is SecurityLevel.STRICT
     assert loaded.enforce_tls13 is True
     assert loaded.dco is True
