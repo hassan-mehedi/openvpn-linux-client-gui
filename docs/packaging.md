@@ -43,6 +43,10 @@ Native packages should declare at least:
 - libsecret bindings or equivalent secret-service integration
 - OpenVPN 3 Linux service packages
 
+If the desktop client is published broadly, release engineering should prefer
+versioned native packages and signed GitHub release assets over a bespoke
+in-app updater. That keeps upgrades aligned with Linux package expectations.
+
 Package definitions should keep privilege boundaries explicit. The desktop GUI
 must not silently acquire elevated helpers through package scripts.
 
@@ -100,3 +104,56 @@ Both packaging flows rely on the shared asset helper to stage:
 - the rendered desktop entry
 - the scalable app icon
 - the OpenVPN profile MIME definition
+
+## Update Strategy
+
+For the current packaging scope, users should discover and install updates
+through release artifacts and native package tooling:
+
+- GitHub Releases should publish the latest DEB and RPM assets with release notes
+- the install script should install the latest stable release
+- future APT or RPM repositories can provide normal package-manager upgrade flows
+
+Until a repository exists, updates are manual:
+
+- DEB users install the newer `.deb`
+- RPM users install the newer `.rpm`
+- install-script users rerun `install.sh`
+
+## Tray Support
+
+The close-to-tray feature uses the Linux StatusNotifierItem protocol on the
+session bus. Package metadata should therefore continue to ship `python3-dbus`
+and should describe GNOME tray support honestly.
+
+Recommended wording for release notes and user docs:
+
+- **Verified**:
+  Fedora 43 GNOME 49.5 with `gnome-shell-extension-appindicator` enabled
+- **Expected**:
+  KDE Plasma, Xfce with notification area or status notifier support,
+  Cinnamon, MATE, and Debian or Ubuntu GNOME with the AppIndicator extension
+- **Unsupported / limited**:
+  GNOME without the AppIndicator or KStatusNotifier extension, and sessions
+  without any StatusNotifier host
+
+Behavior expectations:
+
+- KDE Plasma generally works out of the box because Plasma ships a
+  StatusNotifier-capable tray
+- Xfce works when the panel exposes its notification area or status notifier
+  support
+- GNOME generally requires the `AppIndicator and KStatusNotifierItem Support`
+  extension or an equivalent distro package such as
+  `gnome-shell-extension-appindicator`
+- when no host is available, the application falls back to background mode plus
+  launcher and notification re-entry
+
+Release notes and user docs should include distro-specific GNOME guidance:
+
+- Fedora GNOME:
+  `sudo dnf install gnome-shell-extension-appindicator`
+- Debian or Ubuntu GNOME:
+  `sudo apt install gnome-shell-extension-appindicator`
+- after installation:
+  `gnome-extensions enable appindicatorsupport@rgcjonas.gmail.com`

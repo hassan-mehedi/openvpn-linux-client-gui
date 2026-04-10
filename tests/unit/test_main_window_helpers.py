@@ -17,9 +17,13 @@ from app.windows.main_window import (
     _format_rate,
     _inactive_profile_details,
     _infer_identity_from_profile_name,
+    _is_window_maximized,
+    _maximize_window,
+    _minimize_window,
     _normalized_telemetry_history,
     _refresh_tooltip_for_page,
     _settings_signature,
+    _unmaximize_window,
     _should_run_debounced_action,
     _should_show_summary,
     _short_service_name,
@@ -386,3 +390,32 @@ def test_settings_signature_changes_when_settings_change() -> None:
     changed = AppSettings(connection_timeout=45)
 
     assert _settings_signature(baseline) != _settings_signature(changed)
+
+
+def test_is_window_maximized_prefers_explicit_accessor() -> None:
+    class FakeWindow:
+        def is_maximized(self) -> bool:
+            return True
+
+    assert _is_window_maximized(FakeWindow()) is True
+
+
+def test_window_helpers_delegate_to_available_methods() -> None:
+    calls: list[str] = []
+
+    class FakeWindow:
+        def minimize(self) -> None:
+            calls.append("minimize")
+
+        def maximize(self) -> None:
+            calls.append("maximize")
+
+        def unmaximize(self) -> None:
+            calls.append("unmaximize")
+
+    window = FakeWindow()
+    _minimize_window(window)
+    _maximize_window(window)
+    _unmaximize_window(window)
+
+    assert calls == ["minimize", "maximize", "unmaximize"]

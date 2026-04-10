@@ -17,6 +17,7 @@ from app.dialogs import (
     present_proxy_manager_dialog,
 )
 from app.theme import apply_theme_mode
+from app.tray import TraySupport
 from core.bootstrap import ServiceContainer
 from core.models import (
     AppSettings,
@@ -62,7 +63,15 @@ _ACTION_DEBOUNCE_SECONDS = 0.75
 _SETTINGS_SAVE_DEBOUNCE_MS = 250
 
 
-def OpenVPNMainWindow(application, services: ServiceContainer):  # noqa: N802
+def OpenVPNMainWindow(  # noqa: N802
+    application,
+    services: ServiceContainer,
+    *,
+    on_background_close: Callable[[], None] | None = None,
+    should_force_close: Callable[[], bool] | None = None,
+    tray_support_provider: Callable[[], TraySupport] | None = None,
+    on_settings_changed: Callable[[AppSettings], TraySupport] | None = None,
+):
     if Adw is None or Gtk is None or GLib is None:
         raise RuntimeError(
             "PyGObject with GTK4/libadwaita is required to build the main window."
@@ -104,9 +113,26 @@ def OpenVPNMainWindow(application, services: ServiceContainer):  # noqa: N802
     title_box.append(subtitle)
     top_bar.set_center_widget(title_box)
 
-    top_bar_spacer = Gtk.Box()
-    top_bar_spacer.set_size_request(42, 42)
-    top_bar.set_end_widget(top_bar_spacer)
+    window_controls = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+    window_controls.set_valign(Gtk.Align.CENTER)
+
+    minimize_button = Gtk.Button(icon_name="window-minimize-symbolic")
+    minimize_button.add_css_class("window-control")
+    minimize_button.set_tooltip_text("Minimize window")
+    window_controls.append(minimize_button)
+
+    maximize_button = Gtk.Button(icon_name="window-maximize-symbolic")
+    maximize_button.add_css_class("window-control")
+    maximize_button.set_tooltip_text("Maximize window")
+    window_controls.append(maximize_button)
+
+    close_button = Gtk.Button(icon_name="window-close-symbolic")
+    close_button.add_css_class("window-control")
+    close_button.add_css_class("window-control-close")
+    close_button.set_tooltip_text("Close window")
+    window_controls.append(close_button)
+
+    top_bar.set_end_widget(window_controls)
 
     shell_switcher = Gtk.StackSwitcher()
     shell_switcher.set_halign(Gtk.Align.CENTER)
@@ -380,6 +406,22 @@ def OpenVPNMainWindow(application, services: ServiceContainer):  # noqa: N802
             control_align=Gtk.Align.END,
         )
     )
+
+    close_to_tray_switch = Gtk.Switch()
+    presentation_body.append(
+        _build_setting_row(
+            "Close to system tray",
+            "Keep the client running in the background when the window is closed so it can be reopened from the launcher or notification.",
+            close_to_tray_switch,
+            control_align=Gtk.Align.END,
+        )
+    )
+
+    tray_support_label = Gtk.Label()
+    tray_support_label.set_xalign(0)
+    tray_support_label.set_wrap(True)
+    tray_support_label.add_css_class("section-caption")
+    presentation_body.append(tray_support_label)
 
     security_card, security_body = _build_section_card(
         "Security And Network",
@@ -729,10 +771,25 @@ def OpenVPNMainWindow(application, services: ServiceContainer):  # noqa: N802
             return {}
         return {item.key: item for item in snapshot.capabilities}
 
+    def tray_support_status() -> TraySupport:
+        if tray_support_provider is None:
+            return TraySupport(
+                available=False,
+                message="Tray support is unavailable in this application build. The app will fall back to background mode.",
+            )
+        try:
+            return tray_support_provider()
+        except Exception as exc:
+            return TraySupport(
+                available=False,
+                message=f"Tray detection failed: {exc}. The app will fall back to background mode.",
+            )
+
     def render_settings() -> None:
         nonlocal settings_rendering, last_saved_settings_signature
         capability_index = build_capability_index()
         dco_capability = capability_index.get("dco")
+        tray_support = tray_support_status()
         try:
             settings = services.settings.load()
         except Exception as exc:  # pragma: no cover - filesystem dependent
@@ -748,6 +805,14 @@ def OpenVPNMainWindow(application, services: ServiceContainer):  # noqa: N802
             seamless_switch.set_active(settings.seamless_tunnel)
             theme_combo.set_active_id(settings.theme.value)
             disconnect_switch.set_active(settings.disconnect_confirmation)
+            close_to_tray_switch.set_active(settings.close_to_tray)
+            close_to_tray_switch.set_sensitive(True)
+            if tray_support.available:
+                tray_support_label.set_label(
+                    "Native StatusNotifier tray support is available on this desktop."
+                )
+            else:
+                tray_support_label.set_label(tray_support.message)
             security_combo.set_active_id(settings.security_level.value)
             tls13_switch.set_active(settings.enforce_tls13)
             block_ipv6_switch.set_active(settings.block_ipv6)
@@ -811,6 +876,7 @@ def OpenVPNMainWindow(application, services: ServiceContainer):  # noqa: N802
             ),
             seamless_tunnel=seamless_switch.get_active(),
             theme=ThemeMode(theme_combo.get_active_id() or ThemeMode.SYSTEM.value),
+            close_to_tray=close_to_tray_switch.get_active(),
             security_level=SecurityLevel(
                 security_combo.get_active_id() or SecurityLevel.STANDARD.value
             ),
@@ -825,12 +891,15 @@ def OpenVPNMainWindow(application, services: ServiceContainer):  # noqa: N802
     def save_settings() -> bool:
         nonlocal settings_save_source_id, last_saved_settings_signature
         settings_save_source_id = None
+        tray_support = None
         try:
             settings = collect_settings()
             settings_signature = _settings_signature(settings)
             if settings_signature == last_saved_settings_signature:
                 return False
             services.settings.save(settings)
+            if on_settings_changed is not None:
+                tray_support = on_settings_changed(settings)
         except Exception as exc:  # pragma: no cover - filesystem dependent
             show_toast(f"Could not save settings: {exc}")
             return False
@@ -840,6 +909,13 @@ def OpenVPNMainWindow(application, services: ServiceContainer):  # noqa: N802
             pass
         last_saved_settings_signature = settings_signature
         apply_window_theme(settings.theme)
+        if settings.close_to_tray and tray_support is not None and not tray_support.available:
+            tray_support_label.set_label(tray_support.message)
+            show_toast(tray_support.message)
+        elif settings.close_to_tray and tray_support is not None:
+            tray_support_label.set_label(
+                "Native StatusNotifier tray support is available on this desktop."
+            )
         show_toast("Settings updated.")
         return False
 
@@ -1778,6 +1854,49 @@ def OpenVPNMainWindow(application, services: ServiceContainer):  # noqa: N802
         render_diagnostics()
         show_toast("Diagnostics refreshed.")
 
+    def sync_maximize_button() -> None:
+        is_maximized = _is_window_maximized(window)
+        maximize_button.set_icon_name(
+            "window-restore-symbolic" if is_maximized else "window-maximize-symbolic"
+        )
+        maximize_button.set_tooltip_text(
+            "Restore window" if is_maximized else "Maximize window"
+        )
+
+    def on_minimize(*_args) -> None:
+        _minimize_window(window)
+
+    def on_toggle_maximize(*_args) -> None:
+        if _is_window_maximized(window):
+            _unmaximize_window(window)
+        else:
+            _maximize_window(window)
+        sync_maximize_button()
+
+    def on_close_window(*_args) -> None:
+        window.close()
+
+    def on_close_request(*_args) -> bool:
+        if should_force_close is not None and should_force_close():
+            clear_session_watch()
+            clear_diagnostics_log_watch()
+            return False
+
+        try:
+            close_to_tray_enabled = services.settings.load().close_to_tray
+        except Exception:
+            close_to_tray_enabled = False
+
+        if close_to_tray_enabled:
+            window.set_visible(False)
+            if on_background_close is not None:
+                on_background_close()
+            return True
+
+        clear_session_watch()
+        clear_diagnostics_log_watch()
+        return False
+
     refresh_button.connect(
         "clicked",
         lambda *_args: run_debounced_action(
@@ -1827,6 +1946,7 @@ def OpenVPNMainWindow(application, services: ServiceContainer):  # noqa: N802
     seamless_switch.connect("notify::active", schedule_settings_save)
     theme_combo.connect("changed", schedule_settings_save)
     disconnect_switch.connect("notify::active", schedule_settings_save)
+    close_to_tray_switch.connect("notify::active", schedule_settings_save)
     security_combo.connect("changed", schedule_settings_save)
     tls13_switch.connect("notify::active", schedule_settings_save)
     dco_switch.connect("notify::active", schedule_settings_save)
@@ -1849,10 +1969,14 @@ def OpenVPNMainWindow(application, services: ServiceContainer):  # noqa: N802
             widgets=(export_bundle_button,),
         ),
     )
-    window.connect(
-        "close-request",
-        lambda *_args: (clear_session_watch(), clear_diagnostics_log_watch(), False)[2],
-    )
+    minimize_button.connect("clicked", on_minimize)
+    maximize_button.connect("clicked", on_toggle_maximize)
+    close_button.connect("clicked", on_close_window)
+    try:
+        window.connect("notify::maximized", lambda *_args: sync_maximize_button())
+    except TypeError:
+        pass
+    window.connect("close-request", on_close_request)
 
     def draw_telemetry_graph(_area, ctx, width: int, height: int) -> None:
         snapshot = telemetry_cache.get("snapshot")
@@ -1876,9 +2000,45 @@ def OpenVPNMainWindow(application, services: ServiceContainer):  # noqa: N802
         apply_window_theme(services.settings.load().theme)
     except Exception:
         apply_window_theme(ThemeMode.SYSTEM)
+    sync_maximize_button()
     render_profiles(True)
     sync_shell()
     return window
+
+
+def _is_window_maximized(window: object) -> bool:
+    for attribute in ("is_maximized", "get_maximized"):
+        method = getattr(window, attribute, None)
+        if callable(method):
+            try:
+                return bool(method())
+            except TypeError:
+                continue
+    get_property = getattr(window, "get_property", None)
+    if callable(get_property):
+        try:
+            return bool(get_property("maximized"))
+        except Exception:
+            return False
+    return False
+
+
+def _minimize_window(window: object) -> None:
+    method = getattr(window, "minimize", None)
+    if callable(method):
+        method()
+
+
+def _maximize_window(window: object) -> None:
+    method = getattr(window, "maximize", None)
+    if callable(method):
+        method()
+
+
+def _unmaximize_window(window: object) -> None:
+    method = getattr(window, "unmaximize", None)
+    if callable(method):
+        method()
 
 
 def _build_stat(grid: Gtk.Grid, label: str, column: int, row: int) -> Gtk.Label:
