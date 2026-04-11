@@ -1,43 +1,83 @@
 name: CI
 
 on:
-  push:
-    branches: [main, dev]
   pull_request:
-    branches: [main]
+  push:
+    branches:
+      - main
 
 jobs:
-  test:
+  tests:
     runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        python-version: ["3.11", "3.12"]
-
     steps:
-      - uses: actions/checkout@v4
+      - name: Check out repository
+        uses: actions/checkout@v4
 
-      - name: Install uv
-        uses: astral-sh/setup-uv@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
 
-      - name: Set up Python ${{ matrix.python-version }}
-        run: uv python install ${{ matrix.python-version }}
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v7
 
-      - name: Install project
+      - name: Sync dependencies
         run: uv sync --dev
 
       - name: Run unit and integration tests
-        run: uv run pytest tests/unit tests/integration -v --tb=short
+        run: uv run pytest tests/unit tests/integration
 
-  packaging-check:
+  deb-package:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - name: Check out repository
+        uses: actions/checkout@v4
 
-      - name: Verify packaging assets
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install Debian packaging dependencies
         run: |
-          test -f packaging/desktop/openvpn3-client.desktop.in
-          test -f packaging/icons/com.openvpn3.clientlinux.svg
-          test -f packaging/uri-handler/openvpn3-client-linux.xml
-          test -f packaging/systemd/openvpn3-client-linux.service
-          test -f packaging/polkit/com.openvpn3.clientlinux.policy
-          test -f install.sh
+          sudo apt-get update
+          sudo apt-get install -y \
+            debhelper \
+            dh-python \
+            python3-all \
+            python3-build \
+            python3-installer \
+            python3-setuptools \
+            python3-wheel
+
+      - name: Build Debian package
+        run: dpkg-buildpackage -us -uc -b
+
+  rpm-package:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Build RPM package in Fedora container
+        run: |
+          docker run --rm \
+            -v "$PWD:/workspace" \
+            -w /workspace \
+            fedora:43 \
+            bash -lc '
+              set -euo pipefail
+              dnf install -y \
+                python3 \
+                python3-build \
+                python3-devel \
+                python3-setuptools \
+                python3-wheel \
+                rpm-build \
+                pyproject-rpm-macros
+              mkdir -p /tmp/rpmbuild/{BUILD,BUILDROOT,RPMS,SOURCES,SPECS,SRPMS}
+              rm -rf dist
+              python3 -m build --sdist --no-isolation
+              cp dist/openvpn3_client_linux-*.tar.gz /tmp/rpmbuild/SOURCES/
+              rpmbuild --define "_topdir /tmp/rpmbuild" -ba packaging/rpm/openvpn3-client-linux.spec
+            '

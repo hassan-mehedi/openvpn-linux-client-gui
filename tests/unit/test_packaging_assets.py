@@ -43,12 +43,14 @@ def test_install_shared_assets_stages_expected_files(tmp_path: Path) -> None:
     desktop_file = expected_root / "applications" / "com.openvpn3.clientlinux.desktop"
     icon_file = expected_root / "icons" / "hicolor" / "scalable" / "apps" / "com.openvpn3.clientlinux.svg"
     mime_file = expected_root / "mime" / "packages" / "openvpn3-client-linux.xml"
+    metainfo_file = expected_root / "metainfo" / "com.openvpn3.clientlinux.metainfo.xml"
 
-    assert installed == [desktop_file, icon_file, mime_file]
+    assert installed == [desktop_file, icon_file, mime_file, metainfo_file]
     assert desktop_file.read_text(encoding="utf-8").startswith("[Desktop Entry]")
     assert "Icon=com.openvpn3.clientlinux" in desktop_file.read_text(encoding="utf-8")
     assert "<svg" in icon_file.read_text(encoding="utf-8")
     assert 'glob pattern="*.ovpn"' in mime_file.read_text(encoding="utf-8")
+    assert "<component type=\"desktop-application\">" in metainfo_file.read_text(encoding="utf-8")
 
 
 def test_debian_recipe_uses_shared_asset_helper() -> None:
@@ -74,3 +76,14 @@ def test_rpm_spec_includes_desktop_assets_and_cache_hooks() -> None:
     assert "%post" in spec
     assert "%postun" in spec
     assert "%{_datadir}/applications/com.openvpn3.clientlinux.desktop" in spec
+    assert "%{_datadir}/metainfo/com.openvpn3.clientlinux.metainfo.xml" in spec
+
+
+def test_appstream_metainfo_references_desktop_launcher() -> None:
+    metainfo = (
+        PROJECT_ROOT / "packaging" / "metainfo" / "com.openvpn3.clientlinux.metainfo.xml"
+    ).read_text(encoding="utf-8")
+
+    assert "<id>com.openvpn3.clientlinux</id>" in metainfo
+    assert "<launchable type=\"desktop-id\">com.openvpn3.clientlinux.desktop</launchable>" in metainfo
+    assert "<releases>" in metainfo

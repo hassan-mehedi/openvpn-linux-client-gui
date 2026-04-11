@@ -69,6 +69,7 @@ fi
 %{_bindir}/ovpn3-linux-gui
 %{_datadir}/applications/com.openvpn3.clientlinux.desktop
 %{_datadir}/icons/hicolor/scalable/apps/com.openvpn3.clientlinux.svg
+%{_datadir}/metainfo/com.openvpn3.clientlinux.metainfo.xml
 %{_datadir}/mime/packages/openvpn3-client-linux.xml
 
 %changelog

@@ -1,0 +1,49 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+  <id>com.openvpn3.clientlinux</id>
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>CC-BY-NC-4.0</project_license>
+  <name>OpenVPN 3 Linux</name>
+  <summary>Native GTK desktop client and CLI for OpenVPN 3 Linux</summary>
+  <developer_name>Mehedi Hassan</developer_name>
+  <launchable type="desktop-id">com.openvpn3.clientlinux.desktop</launchable>
+  <description>
+    <p>
+      OpenVPN 3 Linux Client is a native GTK4 and libadwaita desktop application
+      and companion CLI for managing OpenVPN 3 Linux profiles, sessions,
+      diagnostics, and launch behavior.
+    </p>
+    <p>
+      It integrates directly with the OpenVPN 3 Linux D-Bus services, supports
+      `.ovpn` file imports and `openvpn://` onboarding links, and installs
+      native desktop assets such as the application launcher, icons, URI
+      handlers, and optional close-to-tray behavior where the desktop supports
+      StatusNotifier.
+    </p>
+  </description>
+  <url type="homepage">https://github.com/hassan-mehedi/openvpn-linux-client-gui</url>
+  <url type="bugtracker">https://github.com/hassan-mehedi/openvpn-linux-client-gui/issues</url>
+  <url type="vcs-browser">https://github.com/hassan-mehedi/openvpn-linux-client-gui</url>
+  <content_rating type="oars-1.1"/>
+  <categories>
+    <category>Network</category>
+    <category>Utility</category>
+  </categories>
+  <keywords>
+    <keyword>VPN</keyword>
+    <keyword>OpenVPN</keyword>
+    <keyword>Network</keyword>
+    <keyword>Security</keyword>
+  </keywords>
+  <releases>
+    <release version="0.1.0" date="2026-04-09">
+      <description>
+        <ul>
+          <li>Initial native Linux release with GTK4 desktop UI and companion CLI.</li>
+          <li>Added close-to-tray behavior with StatusNotifier support where available.</li>
+          <li>Added DEB and RPM native packaging with launcher, icon, MIME, and URI assets.</li>
+        </ul>
+      </description>
+    </release>
+  </releases>
+</component>

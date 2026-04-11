@@ -12,6 +12,7 @@ gi.require_version("Adw", "1")
 from gi.repository import Adw, GLib, Gtk  # noqa: E402
 
 from app.dialogs.import_url_dialog import present_import_profile_dialog  # noqa: E402
+from app.dialogs.profile_details_dialog import present_profile_details_dialog  # noqa: E402
 from app.windows.main_window import OpenVPNMainWindow  # noqa: E402
 from core.models import (  # noqa: E402
     AppSettings,
@@ -569,6 +570,54 @@ def test_import_dialog_builds_real_gtk_dialog() -> None:
 
     for dialog in dialogs:
         dialog.destroy()
+    parent.destroy()
+
+
+def test_profile_details_dialog_builds_editable_fields() -> None:
+    app = Adw.Application(application_id="com.example.OpenVPN3ClientLinux.ProfileDetailsDialog")
+    app.register(None)
+    parent = Adw.ApplicationWindow(application=app)
+
+    present_profile_details_dialog(
+        parent,
+        profile=Profile(
+            id="profile-1",
+            name="Imported Remote",
+            source=ImportSource.URL,
+            metadata={
+                "profile_name": "Imported Remote",
+                "server_hostname": "vpn.example.com",
+                "username": "openvpn",
+                "canonical_url": "https://vpn.example.com/profile.ovpn",
+            },
+        ),
+        proxies=(),
+        credential_state=SavedCredentialState(profile_id="profile-1"),
+        secure_storage_available=False,
+        on_save=lambda profile_name, assigned_proxy_id, save_password_requested: None,
+        on_connect=lambda profile_name, assigned_proxy_id, save_password_requested: None,
+        on_reset=lambda: Profile(
+            id="profile-1",
+            name="Imported Remote",
+            source=ImportSource.URL,
+            metadata={
+                "profile_name": "Imported Remote",
+                "server_hostname": "vpn.example.com",
+                "username": "openvpn",
+                "canonical_url": "https://vpn.example.com/profile.ovpn",
+            },
+        ),
+        on_delete=lambda: None,
+    )
+    _drain_events()
+
+    dialog = _find_toplevel_dialog("Imported Profile")
+    assert dialog is not None
+    assert _find_label(dialog, "Profile Name") is not None
+    assert _find_label(dialog, "Assigned Proxy") is not None
+    assert _find_label(dialog, "Profile Facts") is not None
+
+    dialog.destroy()
     parent.destroy()
 
 

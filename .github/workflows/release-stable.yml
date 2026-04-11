@@ -1,0 +1,279 @@
+name: Release Stable
+
+on:
+  push:
+    tags:
+      - "v*.*.*"
+  workflow_dispatch:
+    inputs:
+      release_version:
+        description: "Stable version to publish, for example 0.2.0"
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-stable
+  cancel-in-progress: false
+
+jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    outputs:
+      python_version: ${{ steps.plan.outputs.python_version }}
+      deb_version: ${{ steps.plan.outputs.deb_version }}
+      rpm_version: ${{ steps.plan.outputs.rpm_version }}
+      rpm_release: ${{ steps.plan.outputs.rpm_release }}
+      tag: ${{ steps.plan.outputs.tag }}
+      title: ${{ steps.plan.outputs.title }}
+      prerelease: ${{ steps.plan.outputs.prerelease }}
+      changelog_message: ${{ steps.plan.outputs.changelog_message }}
+      release_date: ${{ steps.plan.outputs.release_date }}
+      release_version: ${{ steps.version.outputs.release_version }}
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Resolve stable version
+        id: version
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            release_version="${{ inputs.release_version }}"
+          else
+            release_version="${GITHUB_REF_NAME#v}"
+          fi
+          if ! printf '%s' "${release_version}" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$'; then
+            echo "Invalid release version: ${release_version}" >&2
+            exit 1
+          fi
+          echo "release_version=${release_version}" >> "${GITHUB_OUTPUT}"
+
+      - name: Plan release metadata
+        id: plan
+        run: |
+          release_date="$(date -u +%Y-%m-%dT%H:%M:%S+0000)"
+          python3 packaging/scripts/release_version.py plan \
+            --channel stable \
+            --release-version "${{ steps.version.outputs.release_version }}" >> "${GITHUB_OUTPUT}"
+          echo "release_date=${release_date}" >> "${GITHUB_OUTPUT}"
+
+  sdist-wheel:
+    runs-on: ubuntu-latest
+    needs: prepare
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.ref }}
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install build dependencies
+        run: python3 -m pip install build
+
+      - name: Apply release metadata
+        run: |
+          python3 packaging/scripts/release_version.py apply \
+            --python-version "${{ needs.prepare.outputs.python_version }}" \
+            --deb-version "${{ needs.prepare.outputs.deb_version }}" \
+            --rpm-version "${{ needs.prepare.outputs.rpm_version }}" \
+            --rpm-release "${{ needs.prepare.outputs.rpm_release }}" \
+            --tag "${{ needs.prepare.outputs.tag }}" \
+            --title "${{ needs.prepare.outputs.title }}" \
+            --no-prerelease \
+            --changelog-message "${{ needs.prepare.outputs.changelog_message }}" \
+            --maintainer-name "Mehedi Hassan" \
+            --maintainer-email "howlader.mehedihassan@gmail.com" \
+            --release-date "${{ needs.prepare.outputs.release_date }}"
+
+      - name: Build source and wheel artifacts
+        run: python3 -m build --sdist --wheel --no-isolation
+
+      - name: Upload source artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: python-artifacts
+          path: dist/*
+
+  deb-package:
+    runs-on: ubuntu-latest
+    needs: prepare
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.ref }}
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install Debian packaging dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            debhelper \
+            dh-python \
+            python3-all \
+            python3-build \
+            python3-installer \
+            python3-setuptools \
+            python3-wheel
+
+      - name: Apply release metadata
+        run: |
+          python3 packaging/scripts/release_version.py apply \
+            --python-version "${{ needs.prepare.outputs.python_version }}" \
+            --deb-version "${{ needs.prepare.outputs.deb_version }}" \
+            --rpm-version "${{ needs.prepare.outputs.rpm_version }}" \
+            --rpm-release "${{ needs.prepare.outputs.rpm_release }}" \
+            --tag "${{ needs.prepare.outputs.tag }}" \
+            --title "${{ needs.prepare.outputs.title }}" \
+            --no-prerelease \
+            --changelog-message "${{ needs.prepare.outputs.changelog_message }}" \
+            --maintainer-name "Mehedi Hassan" \
+            --maintainer-email "howlader.mehedihassan@gmail.com" \
+            --release-date "${{ needs.prepare.outputs.release_date }}"
+
+      - name: Build Debian package
+        run: dpkg-buildpackage -us -uc -b
+
+      - name: Collect Debian artifacts
+        run: |
+          mkdir -p artifacts/deb
+          cp ../openvpn3-client-linux_*.deb artifacts/deb/
+          cp ../openvpn3-client-linux_*.buildinfo artifacts/deb/
+          cp ../openvpn3-client-linux_*.changes artifacts/deb/
+
+      - name: Upload Debian artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: deb-artifacts
+          path: artifacts/deb/*
+
+  rpm-package:
+    runs-on: ubuntu-latest
+    needs: prepare
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.ref }}
+
+      - name: Build RPM package in Fedora container
+        env:
+          PYTHON_VERSION: ${{ needs.prepare.outputs.python_version }}
+          DEB_VERSION: ${{ needs.prepare.outputs.deb_version }}
+          RPM_VERSION: ${{ needs.prepare.outputs.rpm_version }}
+          RPM_RELEASE: ${{ needs.prepare.outputs.rpm_release }}
+          TAG: ${{ needs.prepare.outputs.tag }}
+          TITLE: ${{ needs.prepare.outputs.title }}
+          CHANGELOG_MESSAGE: ${{ needs.prepare.outputs.changelog_message }}
+          RELEASE_DATE: ${{ needs.prepare.outputs.release_date }}
+        run: |
+          docker run --rm \
+            -e PYTHON_VERSION \
+            -e DEB_VERSION \
+            -e RPM_VERSION \
+            -e RPM_RELEASE \
+            -e TAG \
+            -e TITLE \
+            -e CHANGELOG_MESSAGE \
+            -e RELEASE_DATE \
+            -v "$PWD:/workspace" \
+            -w /workspace \
+            fedora:43 \
+            bash -lc '
+              set -euo pipefail
+              dnf install -y \
+                python3 \
+                python3-build \
+                python3-devel \
+                python3-setuptools \
+                python3-wheel \
+                rpm-build \
+                pyproject-rpm-macros
+              python3 packaging/scripts/release_version.py apply \
+                --python-version "${PYTHON_VERSION}" \
+                --deb-version "${DEB_VERSION}" \
+                --rpm-version "${RPM_VERSION}" \
+                --rpm-release "${RPM_RELEASE}" \
+                --tag "${TAG}" \
+                --title "${TITLE}" \
+                --no-prerelease \
+                --changelog-message "${CHANGELOG_MESSAGE}" \
+                --maintainer-name "Mehedi Hassan" \
+                --maintainer-email "howlader.mehedihassan@gmail.com" \
+                --release-date "${RELEASE_DATE}"
+              mkdir -p /tmp/rpmbuild/{BUILD,BUILDROOT,RPMS,SOURCES,SPECS,SRPMS}
+              mkdir -p artifacts/rpm
+              rm -rf dist
+              python3 -m build --sdist --no-isolation
+              cp dist/openvpn3_client_linux-*.tar.gz /tmp/rpmbuild/SOURCES/
+              rpmbuild --define "_topdir /tmp/rpmbuild" -ba packaging/rpm/openvpn3-client-linux.spec
+              cp /tmp/rpmbuild/RPMS/noarch/*.rpm artifacts/rpm/
+              cp /tmp/rpmbuild/SRPMS/*.rpm artifacts/rpm/
+            '
+
+      - name: Upload RPM artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: rpm-artifacts
+          path: artifacts/rpm/*
+
+  release:
+    runs-on: ubuntu-latest
+    needs:
+      - prepare
+      - sdist-wheel
+      - deb-package
+      - rpm-package
+    steps:
+      - name: Download Python artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: python-artifacts
+          path: artifacts/python
+
+      - name: Download Debian artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: deb-artifacts
+          path: artifacts/deb
+
+      - name: Download RPM artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: rpm-artifacts
+          path: artifacts/rpm
+
+      - name: Build checksums
+        run: |
+          find artifacts -type f -print0 | sort -z | xargs -0 sha256sum > SHA256SUMS
+
+      - name: Publish GitHub release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ needs.prepare.outputs.tag }}
+          target_commitish: ${{ github.sha }}
+          name: ${{ needs.prepare.outputs.title }}
+          prerelease: false
+          generate_release_notes: true
+          files: |
+            artifacts/python/*
+            artifacts/deb/*
+            artifacts/rpm/*
+            SHA256SUMS
