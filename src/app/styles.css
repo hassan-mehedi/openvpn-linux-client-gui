@@ -798,17 +798,12 @@ combobox.dialog-entry > box.linked > button.combo arrow {
   line-height: 1.35;
 }
 
-.file-drop-card label {
-  text-align: center;
-}
-
 .import-switcher {
   margin-bottom: 4px;
 }
 
 .file-drop-card {
   min-height: 220px;
-  justify-content: center;
 }
 
 .dialog-shell .primary-cta,
@@ -864,17 +859,6 @@ combobox.dialog-entry > box.linked > button.combo arrow {
 
 .dialog-shell.theme-dark .dialog-value {
   border-color: #29415f;
-}
-
-.drop-card-title,
-.drop-card-subtitle {
-  max-width: 280px;
-}
-
-.dialog-note,
-.dialog-warning,
-.dialog-error {
-  max-width: 360px;
 }
 
 .file-drop-card .secondary-cta {

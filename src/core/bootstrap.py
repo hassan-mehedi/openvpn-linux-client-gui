@@ -15,6 +15,7 @@ from core.secrets import ProfileSecretsService, create_secret_store
 from core.session_manager import SessionLifecycleService
 from core.settings import SettingsService
 from core.telemetry import SessionTelemetryService
+from core.version import application_version
 from ovpn3_dbus.attention_service import AttentionService
 from ovpn3_dbus.backend_service import BackendService
 from ovpn3_dbus.configuration_service import ConfigurationService
@@ -85,6 +86,7 @@ def build_live_services() -> ServiceContainer:
         capability_probe=netcfg,
         log_source=_DiagnosticLogSource(log),
         dbus_validation_probe=introspection,
+        app_version=application_version(),
     )
     profile_catalog = ProfileCatalogService(
         configuration,

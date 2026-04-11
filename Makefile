@@ -1,4 +1,5 @@
 UV ?= uv
+VERSION := $(shell python3 packaging/scripts/release_version.py base-version)
 
 .PHONY: test
 test:
@@ -15,17 +16,18 @@ cli-help:
 .PHONY: rpm-build
 rpm-build:
 	mkdir -p ~/rpmbuild/{BUILD,BUILDROOT,RPMS,SOURCES,SPECS,SRPMS}
+	rm -rf dist
 	python3 -m build --sdist --no-isolation
-	cp dist/openvpn3_client_linux-0.1.0.tar.gz ~/rpmbuild/SOURCES/
+	cp dist/openvpn3_client_linux-*.tar.gz ~/rpmbuild/SOURCES/
 	rpmbuild -ba packaging/rpm/openvpn3-client-linux.spec
 
 .PHONY: rpm-install
 rpm-install:
-	sudo dnf install -y ~/rpmbuild/RPMS/noarch/openvpn3-client-linux-0.1.0-1.*.noarch.rpm
+	sudo dnf install -y ~/rpmbuild/RPMS/noarch/openvpn3-client-linux-*.noarch.rpm
 
 .PHONY: rpm-reinstall
 rpm-reinstall:
-	sudo dnf reinstall -y ~/rpmbuild/RPMS/noarch/openvpn3-client-linux-0.1.0-1.*.noarch.rpm
+	sudo dnf reinstall -y ~/rpmbuild/RPMS/noarch/openvpn3-client-linux-*.noarch.rpm
 
 .PHONY: rpm-uninstall
 rpm-uninstall:
@@ -37,7 +39,7 @@ deb-build:
 
 .PHONY: deb-install
 deb-install:
-	sudo dpkg -i ../openvpn3-client-linux_0.1.0_all.deb
+	sudo dpkg -i ../openvpn3-client-linux_*_all.deb
 
 .PHONY: deb-uninstall
 deb-uninstall:

@@ -25,8 +25,6 @@ else:  # pragma: no cover - UI boot is not exercised in unit tests
     _IMPORT_ERROR = None
 
 
-DELETE_RESPONSE = 1001
-RESET_RESPONSE = 1002
 _PROFILE_SAVE_DEBOUNCE_MS = 500
 
 
@@ -48,58 +46,70 @@ def present_profile_details_dialog(
     dialog = Gtk.Dialog(title="Imported Profile", transient_for=parent, modal=True)
     dialog.set_default_size(460, 560)
     dialog.set_resizable(False)
-    dialog.add_button("", DELETE_RESPONSE)
-    dialog.add_button("", RESET_RESPONSE)
-    dialog.add_button("", Gtk.ResponseType.ACCEPT)
-    dialog.set_default_response(Gtk.ResponseType.ACCEPT)
-
-    delete_button = dialog.get_widget_for_response(DELETE_RESPONSE)
-    reset_button = dialog.get_widget_for_response(RESET_RESPONSE)
-    accept_button = dialog.get_widget_for_response(Gtk.ResponseType.ACCEPT)
-    if delete_button is not None:
-        _configure_icon_action_button(
-            delete_button,
-            icon_name="user-trash-symbolic",
-            tooltip="Delete profile",
-            css_class="dialog-action-delete",
-        )
-    if reset_button is not None:
-        _configure_icon_action_button(
-            reset_button,
-            icon_name="edit-clear-symbolic",
-            tooltip="Reset local changes",
-            css_class="dialog-action-secondary",
-        )
-    if accept_button is not None:
-        _configure_icon_action_button(
-            accept_button,
-            icon_name="network-vpn-symbolic",
-            tooltip="Connect profile",
-            css_class="dialog-action-connect",
-        )
 
     area = configure_dialog_chrome(dialog, title="Imported Profile")
-    scroller = Gtk.ScrolledWindow()
-    scroller.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
-    area.append(scroller)
+    shell = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=16)
+    shell.set_margin_top(20)
+    shell.set_margin_bottom(20)
+    shell.set_margin_start(20)
+    shell.set_margin_end(20)
+    shell.set_vexpand(True)
+    area.append(shell)
 
-    box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=16)
-    box.set_margin_top(20)
-    box.set_margin_bottom(20)
-    box.set_margin_start(20)
-    box.set_margin_end(20)
-    scroller.set_child(box)
+    title_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=12)
+    shell.append(title_row)
 
     title = Gtk.Label(label="Imported Profile")
     title.set_xalign(0)
+    title.set_hexpand(True)
     title.add_css_class("dialog-title")
-    box.append(title)
+    title_row.append(title)
+
+    action_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+    title_row.append(action_box)
+
+    delete_button = Gtk.Button()
+    _configure_icon_action_button(
+        delete_button,
+        icon_name="user-trash-symbolic",
+        tooltip="Delete profile",
+        css_class="dialog-action-delete",
+    )
+    action_box.append(delete_button)
+
+    reset_button = Gtk.Button()
+    _configure_icon_action_button(
+        reset_button,
+        icon_name="edit-clear-symbolic",
+        tooltip="Reset local changes",
+        css_class="dialog-action-secondary",
+    )
+    action_box.append(reset_button)
+
+    accept_button = Gtk.Button()
+    _configure_icon_action_button(
+        accept_button,
+        icon_name="network-vpn-symbolic",
+        tooltip="Connect profile",
+        css_class="dialog-action-connect",
+    )
+    action_box.append(accept_button)
+
+    scroller = Gtk.ScrolledWindow()
+    scroller.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
+    scroller.set_vexpand(True)
+    shell.append(scroller)
+
+    box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=16)
+    box.set_hexpand(True)
+    scroller.set_child(box)
 
     current_profile = profile
     details = _resolve_profile_details(current_profile)
 
     grid = Gtk.Grid(column_spacing=12, row_spacing=14)
     grid.add_css_class("import-review-grid")
+    grid.set_hexpand(True)
     box.append(grid)
 
     profile_name_label = Gtk.Label(label="Profile Name")
@@ -167,6 +177,7 @@ def present_profile_details_dialog(
 
     facts_grid = Gtk.Grid(column_spacing=12, row_spacing=14)
     facts_grid.add_css_class("import-review-grid")
+    facts_grid.set_hexpand(True)
     box.append(facts_grid)
 
     source_value = _attach_detail_row(facts_grid, "Source", "", 0)
@@ -297,45 +308,31 @@ def present_profile_details_dialog(
 
     save_password.connect("toggled", refresh_save_password_hint)
 
-    def on_response(_dialog: Gtk.Dialog, response_id: int) -> None:
-        nonlocal current_profile, save_source_id, last_saved_name, last_saved_proxy_id
-        if response_id == DELETE_RESPONSE:
-            if save_source_id is not None:
-                GLib.source_remove(save_source_id)
-                save_source_id = None
-            on_delete()
-            dialog.destroy()
-            return
-
-        if response_id == RESET_RESPONSE:
-            if save_source_id is not None:
-                GLib.source_remove(save_source_id)
-                save_source_id = None
-            try:
-                current_profile = on_reset()
-            except Exception as exc:
-                error_label.set_label(str(exc))
-                error_label.set_visible(True)
-                return
-            details = _resolve_profile_details(current_profile)
-            profile_name_entry.set_text(details["profile_name"] or current_profile.name)
-            proxy_combo.set_active_id(current_profile.assigned_proxy_id or "")
-            last_saved_name = _normalize_profile_name(profile_name_entry.get_text())
-            last_saved_proxy_id = _normalize_proxy_id(current_profile.assigned_proxy_id)
-            error_label.set_visible(False)
-            refresh_fact_rows()
-            return
-
-        if response_id != Gtk.ResponseType.ACCEPT:
-            if save_source_id is not None:
-                GLib.source_remove(save_source_id)
-                save_source_id = None
-            dialog.destroy()
-            return
-
+    def clear_pending_save() -> None:
+        nonlocal save_source_id
         if save_source_id is not None:
             GLib.source_remove(save_source_id)
-            save_source_id = None
+        save_source_id = None
+
+    def reset_dialog_state() -> None:
+        nonlocal current_profile, last_saved_name, last_saved_proxy_id
+        clear_pending_save()
+        try:
+            current_profile = on_reset()
+        except Exception as exc:
+            error_label.set_label(str(exc))
+            error_label.set_visible(True)
+            return
+        details = _resolve_profile_details(current_profile)
+        profile_name_entry.set_text(details["profile_name"] or current_profile.name)
+        proxy_combo.set_active_id(current_profile.assigned_proxy_id or "")
+        last_saved_name = _normalize_profile_name(profile_name_entry.get_text())
+        last_saved_proxy_id = _normalize_proxy_id(current_profile.assigned_proxy_id)
+        error_label.set_visible(False)
+        refresh_fact_rows()
+
+    def connect_profile(*_args) -> None:
+        clear_pending_save()
         if not save_profile_name_if_needed():
             return
 
@@ -349,7 +346,20 @@ def present_profile_details_dialog(
         )
         dialog.destroy()
 
-    dialog.connect("response", on_response)
+    def delete_profile_and_close(*_args) -> None:
+        clear_pending_save()
+        on_delete()
+        dialog.destroy()
+
+    def on_close_request(*_args) -> bool:
+        clear_pending_save()
+        return False
+
+    delete_button.connect("clicked", delete_profile_and_close)
+    reset_button.connect("clicked", reset_dialog_state)
+    accept_button.connect("clicked", connect_profile)
+    profile_name_entry.connect("activate", connect_profile)
+    dialog.connect("close-request", on_close_request)
     dialog.present()
 
 

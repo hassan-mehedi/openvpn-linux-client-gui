@@ -20,6 +20,7 @@ The project integrates directly with the OpenVPN 3 Linux D-Bus service model —
 - **Background close behavior** — optional close-to-tray/background preference with native StatusNotifier support where available and launcher/notification fallback elsewhere
 - **Companion CLI** — full automation surface for profiles, sessions, settings, proxies, and diagnostics
 - **Native packaging** — DEB and RPM recipes with desktop, icon, and MIME asset staging
+- **Software center metadata** — AppStream metainfo for GNOME Software, KDE Discover, and release-note surfacing
 - **System mode** — optional systemd user service and polkit policy for boot-time connections
 
 ## Screenshots
@@ -203,12 +204,18 @@ docs/
   product-spec.md
   dbus-notes.md
   packaging.md
+  repository-publishing.md
   security.md
+.github/workflows/
+  ci.yml            # Tests plus DEB/RPM packaging smoke checks
+  release-main.yml  # Automatic GitHub prerelease for every merge to main
+  release-stable.yml # Stable GitHub release for version tags such as v0.2.0
 packaging/
   deb/              # Debian packaging
   rpm/              # RPM spec
   desktop/          # .desktop entry template
   icons/            # Application icon (SVG)
+  metainfo/         # AppStream metadata for software centers
   uri-handler/      # MIME type definition
   systemd/          # Optional user service unit
   polkit/           # Optional privilege policy
@@ -238,6 +245,7 @@ When installed via native packages, the app registers:
 - **File association** for `.ovpn` files (`application/x-openvpn-profile`)
 - **URI handler** for `openvpn://import-profile/...` token URLs
 - **XDG autostart** entry (when launch behavior is configured)
+- **AppStream metadata** for software centers such as GNOME Software and KDE Discover
 
 When **Close to system tray** is enabled in Settings, closing the window keeps
 the application running in the background instead of terminating it. On
@@ -348,25 +356,57 @@ Use this checklist when the app closes to background but no tray icon appears:
 
 For a published build, the cleanest release story is:
 
-- publish signed GitHub Releases with matching DEB and RPM artifacts
+- automatically publish GitHub Releases with matching source, wheel, DEB, and RPM artifacts
 - keep the install script pointed at the latest stable release
-- optionally publish an APT/YUM/DNF repository later if you want native package-manager updates
+- publish an APT repository and Fedora COPR or RPM repository later if you want native package-manager updates
 
 How users know an update exists:
 
 - GitHub Releases notifications, release notes, and the project changelog
-- package manager update lists if you later ship an APT or RPM repository
+- package manager update lists after the app is published through an APT or RPM repository
+- GNOME Software, KDE Discover, or other software centers once AppStream metadata and package repositories are in place
 - the installer page or README pointing to the latest release version
 
 How users update:
 
 - **Install script users**: rerun the same `install.sh` command to fetch and install the latest release
-- **DEB users**: download the new `.deb` from Releases and install it over the existing package, or upgrade via APT once a repo exists
-- **RPM users**: install the newer `.rpm` over the existing package, or upgrade with DNF/YUM once a repo exists
+- **DEB users**: download the new `.deb` from Releases and install it over the existing package, or upgrade via APT once a repository exists
+- **RPM users**: install the newer `.rpm` over the existing package, or upgrade with DNF once a repository exists
 - **Source users**: pull the new tag or branch, then rebuild and reinstall
 
-This project does not currently ship an in-app auto-update service. Native
-package distribution should stay the source of truth for upgrades.
+What is automated today:
+
+- every push to `main` triggers `.github/workflows/release-main.yml`
+- that workflow computes a unique snapshot version, builds source, wheel, DEB, and RPM artifacts, and publishes a GitHub prerelease automatically
+- pushing a version tag such as `v0.2.0` triggers `.github/workflows/release-stable.yml`
+- the stable workflow rebuilds the same source as a non-prerelease and publishes source, wheel, DEB, RPM, and checksum artifacts
+- `.github/workflows/ci.yml` runs tests and DEB/RPM packaging smoke checks on pull requests and pushes
+
+What is NOT automatic yet:
+
+- `sudo apt update && sudo apt upgrade` cannot update this app until users install it from an APT repository you control
+- `sudo dnf update` cannot update this app until users install it from Fedora COPR or another RPM repository you control
+- the app does not currently include an in-app self-updater, and that is intentional
+
+Recommended next step for the easiest user experience:
+
+1. Keep the new GitHub release automation for build artifacts.
+2. Publish an APT repository for Debian or Ubuntu users.
+3. Publish a Fedora COPR project or another signed RPM repository.
+4. Keep the AppStream metainfo updated with release notes for stable releases.
+5. Update `install.sh` to add the repository and install from it instead of cloning and building from source.
+
+Until those repositories exist, native package distribution should still be
+treated as the source of truth for upgrades, but upgrades remain manual.
+
+For the concrete repository rollout plan, see [docs/repository-publishing.md](/home/mehedi/Projects/personal/openvpn3-client-linux/docs/repository-publishing.md).
+
+Stable release flow:
+
+1. Bump the version in `pyproject.toml` when you are ready for a new stable release.
+2. Update the AppStream `<releases>` section in `packaging/metainfo/com.openvpn3.clientlinux.metainfo.xml`.
+3. Push a tag such as `v0.2.0`.
+4. GitHub Actions publishes the stable release automatically.
 
 ## System Mode
 

@@ -14,6 +14,7 @@ ICON_NAME = APP_ID
 DESKTOP_FILE_NAME = f"{APP_ID}.desktop"
 ICON_FILE_NAME = f"{ICON_NAME}.svg"
 MIME_PACKAGE_NAME = "openvpn3-client-linux.xml"
+METAINFO_FILE_NAME = f"{APP_ID}.metainfo.xml"
 
 
 def project_root() -> Path:
@@ -38,10 +39,12 @@ def install_shared_assets(*, destdir: Path, prefix: Path = Path("/usr")) -> list
     target_root = _join_destdir(destdir, prefix)
     applications_dir = target_root / "share" / "applications"
     icons_dir = target_root / "share" / "icons" / "hicolor" / "scalable" / "apps"
+    metainfo_dir = target_root / "share" / "metainfo"
     mime_dir = target_root / "share" / "mime" / "packages"
 
     applications_dir.mkdir(parents=True, exist_ok=True)
     icons_dir.mkdir(parents=True, exist_ok=True)
+    metainfo_dir.mkdir(parents=True, exist_ok=True)
     mime_dir.mkdir(parents=True, exist_ok=True)
 
     desktop_template = (root / "packaging" / "desktop" / "openvpn3-client.desktop.in").read_text(
@@ -58,7 +61,11 @@ def install_shared_assets(*, destdir: Path, prefix: Path = Path("/usr")) -> list
     mime_path = mime_dir / MIME_PACKAGE_NAME
     mime_path.write_text(mime_source.read_text(encoding="utf-8"), encoding="utf-8")
 
-    return [desktop_path, icon_path, mime_path]
+    metainfo_source = root / "packaging" / "metainfo" / METAINFO_FILE_NAME
+    metainfo_path = metainfo_dir / METAINFO_FILE_NAME
+    metainfo_path.write_text(metainfo_source.read_text(encoding="utf-8"), encoding="utf-8")
+
+    return [desktop_path, icon_path, mime_path, metainfo_path]
 
 
 def _join_destdir(destdir: Path, prefix: Path) -> Path:
