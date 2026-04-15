@@ -8,7 +8,7 @@ override_dh_auto_build:
 
 override_dh_auto_install:
 	rm -rf debian/openvpn3-client-linux
-	python3 -m installer --destdir=debian/openvpn3-client-linux --prefix=/usr dist/*.whl
+	python3 packaging/scripts/install_wheel.py --destdir debian/openvpn3-client-linux dist/*.whl
 	python3 packaging/scripts/install_shared_assets.py --destdir debian/openvpn3-client-linux --prefix /usr
 
 override_dh_auto_test:

@@ -108,18 +108,13 @@ jobs:
           path: dist/*
 
   deb-package:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
     needs: prepare
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
         with:
           ref: ${{ github.ref }}
-
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.11"
 
       - name: Install Debian packaging dependencies
         run: |

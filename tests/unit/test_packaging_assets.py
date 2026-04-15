@@ -61,7 +61,7 @@ def test_debian_recipe_uses_shared_asset_helper() -> None:
     )
 
     assert "python3 packaging/scripts/install_shared_assets.py" in rules
-    assert "python3 -m installer" in rules
+    assert "python3 packaging/scripts/install_wheel.py" in rules
     assert "gir1.2-secret-1" in control
     assert "update-mime-database" in postinst
 
