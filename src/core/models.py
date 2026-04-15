@@ -4,8 +4,9 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
-from enum import StrEnum
 from typing import Any
+
+from core._compat import StrEnum
 
 
 def utc_now() -> datetime:

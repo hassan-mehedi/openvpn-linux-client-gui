@@ -1,5 +1,5 @@
 [build-system]
-requires = ["setuptools>=69", "wheel"]
+requires = ["setuptools>=59.6", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
@@ -7,8 +7,8 @@ name = "openvpn3-client-linux"
 version = "0.1.0"
 description = "Native Linux GUI and CLI for OpenVPN 3 Linux"
 readme = "README.md"
-requires-python = ">=3.11"
-license = { text = "CC-BY-NC-4.0" }
+requires-python = ">=3.10"
+license = "CC-BY-NC-4.0"
 authors = [
   { name = "Mehedi Hassan", email = "howlader.mehedihassan@gmail.com" }
 ]

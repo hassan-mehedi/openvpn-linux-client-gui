@@ -133,4 +133,4 @@ learn that a newer version exists.
 3. Publish a Fedora COPR project.
 4. Publish a signed APT repository.
 5. Update `install.sh` so it adds the right repository and installs the package
-   from there instead of cloning and building from source.
+   from there instead of downloading GitHub release assets directly.

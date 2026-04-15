@@ -3,7 +3,8 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from enum import StrEnum
+
+from core._compat import StrEnum
 
 from core.models import SessionPhase
 
@@ -31,4 +32,3 @@ class TransitionRecord:
     event: SessionEvent
     new_state: SessionPhase
     reason: str | None = None
-

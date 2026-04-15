@@ -29,7 +29,7 @@ The project integrates directly with the OpenVPN 3 Linux D-Bus service model —
 
 ## Requirements
 
-- Python 3.11+
+- Python 3.10+
 - [OpenVPN 3 Linux](https://github.com/OpenVPN/openvpn3-linux) installed and running
 - GTK4 and libadwaita
 - PyGObject (`python3-gi`)
@@ -56,7 +56,7 @@ sudo apt install gir1.2-gtk-4.0 gir1.2-adw-1 gir1.2-secret-1 python3-gi python3-
 curl -fsSL https://raw.githubusercontent.com/hassan-mehedi/openvpn-linux-client-gui/main/install.sh | bash
 ```
 
-This automatically detects your distro, installs OpenVPN 3 Linux if needed, builds and installs the package.
+This detects the current distro and version, fetches the latest stable DEB or RPM release from GitHub, bootstraps the required OpenVPN 3 repository on Debian-family systems, and installs the package with the native package manager.
 
 ### From source (development)
 
@@ -394,7 +394,7 @@ Recommended next step for the easiest user experience:
 2. Publish an APT repository for Debian or Ubuntu users.
 3. Publish a Fedora COPR project or another signed RPM repository.
 4. Keep the AppStream metainfo updated with release notes for stable releases.
-5. Update `install.sh` to add the repository and install from it instead of cloning and building from source.
+5. Switch `install.sh` from GitHub release assets to repository-based installation once the APT and RPM repositories exist.
 
 Until those repositories exist, native package distribution should still be
 treated as the source of truth for upgrades, but upgrades remain manual.
