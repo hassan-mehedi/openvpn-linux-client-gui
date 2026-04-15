@@ -36,7 +36,7 @@ Both package families should install the same functional surface:
 
 Native packages should declare at least:
 
-- Python 3.11+
+- Python 3.10+
 - PyGObject
 - GTK4
 - libadwaita
@@ -112,7 +112,7 @@ For the current packaging scope, users should discover and install updates
 through release artifacts and native package tooling:
 
 - GitHub Actions should publish the latest source, wheel, DEB, and RPM assets on every merge to `main`
-- the install script should eventually install the latest stable packaged release rather than cloning the repo and building locally
+- the install script now installs the latest stable packaged release from GitHub instead of cloning and building locally
 - future APT or RPM repositories should provide normal package-manager upgrade flows
 
 Until a repository exists, updates are manual:

@@ -5,15 +5,15 @@ from __future__ import annotations
 
 import argparse
 import re
-import tomllib
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 PYPROJECT_PATH = ROOT / "pyproject.toml"
 RPM_SPEC_PATH = ROOT / "packaging" / "rpm" / "openvpn3-client-linux.spec"
 DEBIAN_CHANGELOG_PATH = ROOT / "debian" / "changelog"
+_VERSION_LINE_PATTERN = re.compile(r'^version\s*=\s*"(?P<version>[^"]+)"\s*$')
 
 
 @dataclass(frozen=True, slots=True)
@@ -29,12 +29,22 @@ class ReleasePlan:
 
 
 def load_base_version() -> str:
-    with PYPROJECT_PATH.open("rb") as handle:
-        project = tomllib.load(handle)["project"]
-    version = project["version"]
-    if not isinstance(version, str) or not version:
-        raise ValueError("Project version is missing from pyproject.toml")
-    return version
+    current_section: str | None = None
+    for raw_line in PYPROJECT_PATH.read_text(encoding="utf-8").splitlines():
+        line = raw_line.strip()
+        if not line or line.startswith("#"):
+            continue
+        if line.startswith("[") and line.endswith("]"):
+            current_section = line[1:-1].strip()
+            continue
+        if current_section != "project":
+            continue
+
+        match = _VERSION_LINE_PATTERN.fullmatch(line)
+        if match:
+            return match.group("version")
+
+    raise ValueError("Project version is missing from pyproject.toml")
 
 
 def build_release_plan(
@@ -61,7 +71,7 @@ def build_release_plan(
             changelog_message=f"Automated stable release {version}.",
         )
 
-    stamp = timestamp or datetime.now(UTC).strftime("%Y%m%d%H%M")
+    stamp = timestamp or datetime.now(timezone.utc).strftime("%Y%m%d%H%M")
     short_sha = (sha or "local")[:7]
     return ReleasePlan(
         python_version=f"{base_version}.dev{stamp}",
@@ -135,7 +145,7 @@ def update_debian_changelog(
     maintainer_email: str,
     release_date: datetime | None = None,
 ) -> None:
-    when = (release_date or datetime.now(UTC)).strftime("%a, %d %b %Y %H:%M:%S %z")
+    when = (release_date or datetime.now(timezone.utc)).strftime("%a, %d %b %Y %H:%M:%S %z")
     entry = "\n".join(
         (
             f"openvpn3-client-linux ({deb_version}) unstable; urgency=medium",

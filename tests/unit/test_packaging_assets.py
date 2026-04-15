@@ -79,6 +79,16 @@ def test_rpm_spec_includes_desktop_assets_and_cache_hooks() -> None:
     assert "%{_datadir}/metainfo/com.openvpn3.clientlinux.metainfo.xml" in spec
 
 
+def test_setuptools_compat_setup_declares_package_layout_and_entrypoints() -> None:
+    setup_py = (PROJECT_ROOT / "setup.py").read_text(encoding="utf-8")
+
+    assert 'python_requires=">=3.10"' in setup_py
+    assert 'packages=find_packages(where="src")' in setup_py
+    assert 'package_data={"app": ["styles.css"]}' in setup_py
+    assert '"ovpn-gui=cli.main:main"' in setup_py
+    assert '"ovpn3-linux-gui=app.main:main"' in setup_py
+
+
 def test_appstream_metainfo_references_desktop_launcher() -> None:
     metainfo = (
         PROJECT_ROOT / "packaging" / "metainfo" / "com.openvpn3.clientlinux.metainfo.xml"

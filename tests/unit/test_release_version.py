@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import importlib.util
 import sys
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 from pathlib import Path
 
 
@@ -91,7 +91,7 @@ def test_apply_release_plan_updates_packaging_metadata(tmp_path: Path, monkeypat
         plan,
         maintainer_name="CI Bot",
         maintainer_email="ci@example.com",
-        release_date=datetime(2026, 4, 10, 12, 0, tzinfo=UTC),
+        release_date=datetime(2026, 4, 10, 12, 0, tzinfo=timezone.utc),
     )
 
     assert 'version = "0.1.0.dev202604101200"' in pyproject.read_text(encoding="utf-8")
