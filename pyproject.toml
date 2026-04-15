@@ -15,7 +15,10 @@ authors = [
 dependencies = []
 
 [dependency-groups]
-dev = ["pytest>=8.0"]
+dev = [
+  "exceptiongroup; python_version < '3.11'",
+  "pytest>=8.0",
+]
 
 [project.scripts]
 ovpn-gui = "cli.main:main"
