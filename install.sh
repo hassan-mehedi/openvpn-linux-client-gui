@@ -9,6 +9,8 @@ PACKAGE_KIND=""
 PACKAGE_NAME=""
 PACKAGE_URL=""
 PACKAGE_PATH=""
+RELEASE_TAG=""
+RELEASE_IS_PRERELEASE=""
 DISTRO_FAMILY=""
 DISTRO_ID=""
 DISTRO_VERSION_ID=""
@@ -141,13 +143,61 @@ ensure_openvpn3_repo_debian() {
 }
 
 fetch_latest_release_metadata() {
+    local latest_url releases_url
+    latest_url="${GITHUB_API_URL}/releases/latest"
+    releases_url="${GITHUB_API_URL}/releases"
+
     info "Resolving the latest stable release..."
+    if RELEASE_JSON="$(
+        curl -fsSL \
+            -H "Accept: application/vnd.github+json" \
+            -H "User-Agent: openvpn3-client-linux-installer" \
+            "$latest_url"
+    )"; then
+        return
+    fi
+
+    warn "No stable GitHub release is published yet. Falling back to the newest packaged prerelease."
     RELEASE_JSON="$(
         curl -fsSL \
             -H "Accept: application/vnd.github+json" \
             -H "User-Agent: openvpn3-client-linux-installer" \
-            "${GITHUB_API_URL}/releases/latest"
-    )"
+            "$releases_url" \
+        | python3 - "$PACKAGE_KIND" <<'PY'
+import json
+import sys
+
+kind = sys.argv[1]
+releases = json.load(sys.stdin)
+
+def has_matching_asset(release):
+    for asset in release.get("assets") or []:
+        name = asset.get("name", "")
+        if kind == "deb" and name.endswith(".deb"):
+            return True
+        if kind == "rpm" and name.endswith(".noarch.rpm"):
+            return True
+    return False
+
+stable = [
+    release for release in releases
+    if not release.get("draft") and not release.get("prerelease") and has_matching_asset(release)
+]
+prereleases = [
+    release for release in releases
+    if not release.get("draft") and release.get("prerelease") and has_matching_asset(release)
+]
+
+selected = (stable or prereleases)
+if not selected:
+    raise SystemExit(1)
+
+print(json.dumps(selected[0]))
+PY
+    )" || {
+        error "Failed to find a GitHub release with a packaged ${PACKAGE_KIND} asset."
+        exit 1
+    }
 
     if [ -z "$RELEASE_JSON" ]; then
         error "Failed to read release metadata from GitHub."
@@ -180,6 +230,7 @@ for asset in assets:
         print(name)
         print(asset.get("browser_download_url", ""))
         print(release.get("tag_name", ""))
+        print(str(bool(release.get("prerelease"))).lower())
         break
 else:
     raise SystemExit(1)
@@ -191,12 +242,19 @@ PY
 
     PACKAGE_NAME="${asset_lines[0]:-}"
     PACKAGE_URL="${asset_lines[1]:-}"
+    RELEASE_TAG="${asset_lines[2]:-}"
+    RELEASE_IS_PRERELEASE="${asset_lines[3]:-false}"
 
     if [ -z "$PACKAGE_NAME" ] || [ -z "$PACKAGE_URL" ]; then
         error "Release metadata did not include a usable ${kind} asset."
         exit 1
     fi
 
+    if [ "$RELEASE_IS_PRERELEASE" = "true" ]; then
+        warn "Using prerelease ${RELEASE_TAG} because no stable release asset is available."
+    else
+        info "Using stable release ${RELEASE_TAG}"
+    fi
     info "Selected release asset: ${PACKAGE_NAME}"
 }
 
