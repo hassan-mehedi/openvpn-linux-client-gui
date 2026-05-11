@@ -23,7 +23,8 @@ Depends:
  gir1.2-secret-1,
  openvpn3,
  python3-dbus,
- python3-gi
+ python3-gi,
+ python3-gi-cairo
 Description: Native Linux GUI and CLI for OpenVPN 3 Linux
  Production-oriented GTK4/libadwaita desktop GUI and companion CLI for
  OpenVPN 3 Linux. The application integrates with the OpenVPN 3 D-Bus

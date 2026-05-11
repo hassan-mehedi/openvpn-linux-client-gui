@@ -54,8 +54,15 @@ except (ImportError, ValueError) as exc:  # pragma: no cover - depends on system
     Adw = None
     GLib = None
     Gtk = None
+    _CAIRO_DRAWING_AVAILABLE = False
     _IMPORT_ERROR = exc
 else:  # pragma: no cover - UI boot is not exercised in unit tests
+    try:
+        gi.require_foreign("cairo")
+    except ImportError:
+        _CAIRO_DRAWING_AVAILABLE = False
+    else:
+        _CAIRO_DRAWING_AVAILABLE = True
     _IMPORT_ERROR = None
 
 
@@ -1535,7 +1542,7 @@ def OpenVPNMainWindow(  # noqa: N802
             stats_packets_out_value.set_label(_format_packets(_telemetry_value(telemetry_snapshot, "packets_out")))
             stats_packet_age_value.set_label(_format_packet_age(telemetry_snapshot))
             telemetry_cache["snapshot"] = telemetry_snapshot
-            telemetry_graph_detail.set_label(_telemetry_detail(telemetry_snapshot))
+            telemetry_graph_detail.set_label(_telemetry_graph_detail(telemetry_snapshot))
             telemetry_graph.queue_draw()
 
     def build_profile_card(
@@ -1993,7 +2000,8 @@ def OpenVPNMainWindow(  # noqa: N802
         _draw_rate_line(ctx, width, height, points, "rx")
         _draw_rate_line(ctx, width, height, points, "tx")
 
-    telemetry_graph.set_draw_func(draw_telemetry_graph)
+    if _CAIRO_DRAWING_AVAILABLE:
+        telemetry_graph.set_draw_func(draw_telemetry_graph)
 
     GLib.timeout_add_seconds(1, periodic_refresh)
     try:
@@ -2392,6 +2400,17 @@ def _telemetry_detail(snapshot: SessionTelemetrySnapshot | None) -> str:
     if snapshot.sample.available:
         return "Rates are calculated from cumulative backend counters over recent refreshes."
     return snapshot.sample.detail or "Live telemetry is unavailable."
+
+
+def _telemetry_graph_detail(snapshot: SessionTelemetrySnapshot | None) -> str:
+    if _CAIRO_DRAWING_AVAILABLE:
+        return _telemetry_detail(snapshot)
+
+    detail = "Install python3-gi-cairo to render the throughput graph."
+    if snapshot is None or snapshot.sample.available:
+        return detail
+    backend_detail = snapshot.sample.detail or "Live telemetry is unavailable."
+    return f"{detail} {backend_detail}"
 
 
 def _normalized_telemetry_history(

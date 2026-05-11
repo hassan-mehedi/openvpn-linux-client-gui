@@ -38,6 +38,7 @@ Native packages should declare at least:
 
 - Python 3.10+
 - PyGObject
+- GI Cairo bridge for GTK drawing callbacks on Debian-family systems
 - GTK4
 - libadwaita
 - libsecret bindings or equivalent secret-service integration
@@ -181,7 +182,9 @@ Stable release checklist:
 
 The close-to-tray feature uses the Linux StatusNotifierItem protocol on the
 session bus. Package metadata should therefore continue to ship `python3-dbus`
-and should describe GNOME tray support honestly.
+and, on Debian-family systems, the PyGObject Cairo bridge package
+`python3-gi-cairo`. User docs should continue to describe GNOME tray support
+honestly.
 
 Recommended wording for release notes and user docs:
 
