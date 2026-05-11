@@ -15,7 +15,7 @@ BuildRequires:  python3-setuptools
 Requires:       gtk4
 Requires:       libadwaita
 Requires:       libsecret
-Requires:       openvpn3
+Requires:       openvpn3-client
 Requires:       python3-dbus
 Requires:       python3-gobject
 

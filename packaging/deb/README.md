@@ -27,7 +27,9 @@ desktop database or icon cache refresh when required by the target distro.
 
 The Debian package depends on the GTK/libadwaita stack, `python3-dbus`, and
 the GI Cairo bridge package `python3-gi-cairo`. That bridge is required for
-`Gtk.DrawingArea` callbacks that render the live throughput graph.
+`Gtk.DrawingArea` callbacks that render the live throughput graph. It also
+depends on `openvpn3-client` where that package is provided by the distro, and
+accepts `openvpn3` as an alternative for OpenVPN's upstream repository builds.
 
 ## Local Build
 

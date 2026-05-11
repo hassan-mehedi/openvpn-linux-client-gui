@@ -46,7 +46,7 @@ sudo dnf install python3-gobject gtk4 libadwaita python3-dbus libsecret openvpn3
 ### Ubuntu / Debian
 
 ```bash
-sudo apt install gir1.2-gtk-4.0 gir1.2-adw-1 gir1.2-secret-1 python3-gi python3-gi-cairo python3-dbus openvpn3
+sudo apt install gir1.2-gtk-4.0 gir1.2-adw-1 gir1.2-secret-1 python3-gi python3-gi-cairo python3-dbus openvpn3-client
 ```
 
 ## Installation
@@ -57,7 +57,7 @@ sudo apt install gir1.2-gtk-4.0 gir1.2-adw-1 gir1.2-secret-1 python3-gi python3-
 curl -fsSL https://raw.githubusercontent.com/hassan-mehedi/openvpn-linux-client-gui/main/install.sh | bash
 ```
 
-This detects the current distro and version, fetches the latest stable DEB or RPM release from GitHub, bootstraps the required OpenVPN 3 repository on Debian-family systems, and installs the package with the native package manager.
+This detects the current distro and version, fetches the latest stable DEB or RPM release from GitHub, prefers distro-native OpenVPN 3 packages on Debian-family systems, falls back to the OpenVPN repository only when needed, and installs the package with the native package manager.
 
 ### From source (development)
 

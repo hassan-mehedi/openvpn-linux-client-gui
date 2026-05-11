@@ -42,7 +42,7 @@ Native packages should declare at least:
 - GTK4
 - libadwaita
 - libsecret bindings or equivalent secret-service integration
-- OpenVPN 3 Linux service packages
+- OpenVPN 3 Linux service packages such as `openvpn3-client` where provided by the distro
 
 If the desktop client is published broadly, release engineering should prefer
 versioned native packages and signed GitHub release assets over a bespoke
