@@ -63,6 +63,7 @@ def test_debian_recipe_uses_shared_asset_helper() -> None:
     assert "python3 packaging/scripts/install_shared_assets.py" in rules
     assert "python3 packaging/scripts/install_wheel.py" in rules
     assert "gir1.2-secret-1" in control
+    assert "openvpn3-client | openvpn3" in control
     assert "python3-gi-cairo" in control
     assert "update-mime-database" in postinst
 
@@ -76,6 +77,7 @@ def test_rpm_spec_includes_desktop_assets_and_cache_hooks() -> None:
     assert "packaging/scripts/install_shared_assets.py" in spec
     assert "%post" in spec
     assert "%postun" in spec
+    assert "Requires:       openvpn3-client" in spec
     assert "%{_datadir}/applications/com.openvpn3.clientlinux.desktop" in spec
     assert "%{_datadir}/metainfo/com.openvpn3.clientlinux.metainfo.xml" in spec
 

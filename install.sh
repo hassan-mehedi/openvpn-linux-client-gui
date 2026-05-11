@@ -123,23 +123,68 @@ check_command() {
     fi
 }
 
-ensure_openvpn3_repo_debian() {
+apt_package_available() {
+    apt-cache show "$1" &>/dev/null
+}
+
+ensure_ubuntu_universe() {
+    if [ "$DISTRO_ID" != "ubuntu" ]; then
+        return
+    fi
+    if apt_package_available openvpn3-client; then
+        return
+    fi
+
+    info "Enabling the Ubuntu universe repository to look for openvpn3-client..."
+    if ! command -v add-apt-repository &>/dev/null; then
+        as_root apt-get update
+        as_root env DEBIAN_FRONTEND=noninteractive apt-get install -y software-properties-common
+    fi
+    as_root add-apt-repository -y universe
+    as_root apt-get update
+}
+
+openvpn3_repo_release_url_debian() {
     local repo_codename
     repo_codename="$(debian_repo_codename)"
     if [ -z "$repo_codename" ]; then
         error "Unable to determine the repository codename for ${DISTRO_ID}."
         exit 1
     fi
+    printf 'https://packages.openvpn.net/openvpn3/debian/%s/Release\n' "$repo_codename"
+}
 
-    if ! apt-cache show openvpn3 &>/dev/null; then
-        info "Adding OpenVPN 3 repository for ${repo_codename}..."
-        as_root mkdir -p /etc/apt/keyrings
-        curl -fsSL https://packages.openvpn.net/packages-repo.gpg \
-            | as_root tee /etc/apt/keyrings/openvpn.asc >/dev/null
-        printf 'deb [signed-by=/etc/apt/keyrings/openvpn.asc] https://packages.openvpn.net/openvpn3/debian %s main\n' "$repo_codename" \
-            | as_root tee /etc/apt/sources.list.d/openvpn3.list >/dev/null
-        as_root apt-get update
+openvpn3_repo_available_debian() {
+    local release_url
+    release_url="$(openvpn3_repo_release_url_debian)"
+    curl -fsI "$release_url" >/dev/null
+}
+
+ensure_openvpn_backend_debian() {
+    if apt_package_available openvpn3-client; then
+        info "Using distro-provided openvpn3-client package."
+        return
     fi
+
+    ensure_ubuntu_universe
+    if apt_package_available openvpn3-client; then
+        info "Using distro-provided openvpn3-client package from universe."
+        return
+    fi
+
+    if ! openvpn3_repo_available_debian; then
+        error "openvpn3-client is not available from the current distro repositories, and the OpenVPN repository does not publish ${DISTRO_CODENAME:-$DISTRO_ID}."
+        echo "On Ubuntu, make sure the universe repository is enabled and try again."
+        exit 1
+    fi
+
+    info "Adding OpenVPN 3 repository for $(debian_repo_codename)..."
+    as_root mkdir -p /etc/apt/keyrings
+    curl -fsSL https://packages.openvpn.net/packages-repo.gpg \
+        | as_root tee /etc/apt/keyrings/openvpn.asc >/dev/null
+    printf 'deb [signed-by=/etc/apt/keyrings/openvpn.asc] https://packages.openvpn.net/openvpn3/debian %s main\n' "$(debian_repo_codename)" \
+        | as_root tee /etc/apt/sources.list.d/openvpn3.list >/dev/null
+    as_root apt-get update
 }
 
 fetch_latest_release_metadata() {
@@ -272,7 +317,7 @@ download_release_asset() {
 }
 
 install_release_debian() {
-    ensure_openvpn3_repo_debian
+    ensure_openvpn_backend_debian
     info "Installing ${PACKAGE_NAME} with apt..."
     as_root apt-get update
     as_root env DEBIAN_FRONTEND=noninteractive apt-get install -y "$PACKAGE_PATH"
