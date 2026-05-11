@@ -23,6 +23,12 @@ The first DEB packaging pass should prefer:
 Maintainer scripts should stay minimal. Use them only for actions such as
 desktop database or icon cache refresh when required by the target distro.
 
+## Runtime Notes
+
+The Debian package depends on the GTK/libadwaita stack, `python3-dbus`, and
+the GI Cairo bridge package `python3-gi-cairo`. That bridge is required for
+`Gtk.DrawingArea` callbacks that render the live throughput graph.
+
 ## Local Build
 
 ```bash
@@ -33,6 +39,7 @@ dpkg-buildpackage -us -uc -b
 
 - install on a clean Debian or Ubuntu machine
 - launch from the desktop shell
+- confirm the throughput graph renders without `cairo.Context` converter errors
 - import via `openvpn://import-profile/...`
 - verify `ovpn-gui doctor summary`
 - remove the package cleanly without leaving privileged helpers behind

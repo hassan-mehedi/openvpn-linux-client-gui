@@ -1,6 +1,15 @@
 from __future__ import annotations
 
-from app.tray import TrayIntegration, TraySupport, current_desktop_environment, detect_tray_support
+from pathlib import Path
+
+from app.tray import (
+    FALLBACK_TRAY_ICON_NAME,
+    TrayIntegration,
+    TraySupport,
+    current_desktop_environment,
+    detect_tray_support,
+    resolve_tray_icon_name,
+)
 
 
 def test_current_desktop_environment_combines_unique_values(monkeypatch) -> None:
@@ -94,3 +103,18 @@ def test_tray_integration_starts_and_stops_backend() -> None:
 
     assert integration.is_active() is False
     assert events == ["init", "start", "stop"]
+
+
+def test_resolve_tray_icon_name_uses_app_icon_when_installed(monkeypatch, tmp_path: Path) -> None:
+    icons_dir = tmp_path / "icons" / "hicolor" / "scalable" / "apps"
+    icons_dir.mkdir(parents=True)
+    (icons_dir / "com.openvpn3.clientlinux.svg").write_text("<svg/>", encoding="utf-8")
+    monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path))
+
+    assert resolve_tray_icon_name("com.openvpn3.clientlinux") == "com.openvpn3.clientlinux"
+
+
+def test_resolve_tray_icon_name_falls_back_when_app_icon_is_missing(monkeypatch, tmp_path: Path) -> None:
+    monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path))
+
+    assert resolve_tray_icon_name("com.openvpn3.clientlinux") == FALLBACK_TRAY_ICON_NAME

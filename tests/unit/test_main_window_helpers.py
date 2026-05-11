@@ -1,6 +1,7 @@
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
+from app.windows import main_window
 from app.windows.main_window import (
     _diagnostic_workflow_detail,
     _capability_detail,
@@ -33,6 +34,7 @@ from app.windows.main_window import (
     _summary_title_for,
     _subtitle_for_page,
     _telemetry_detail,
+    _telemetry_graph_detail,
     _stats_body_for,
     _stats_title_for,
 )
@@ -200,6 +202,32 @@ def test_telemetry_detail_prefers_backend_message_when_unavailable() -> None:
     )
 
     assert _telemetry_detail(snapshot) == "Session telemetry is not exposed by the backend."
+
+
+def test_telemetry_graph_detail_reports_missing_cairo_bridge(monkeypatch) -> None:
+    monkeypatch.setattr(main_window, "_CAIRO_DRAWING_AVAILABLE", False)
+
+    assert (
+        _telemetry_graph_detail(None)
+        == "Install python3-gi-cairo to render the throughput graph."
+    )
+
+
+def test_telemetry_graph_detail_combines_env_and_backend_messages(monkeypatch) -> None:
+    monkeypatch.setattr(main_window, "_CAIRO_DRAWING_AVAILABLE", False)
+    snapshot = SessionTelemetrySnapshot(
+        sample=SessionTelemetrySample(
+            session_id="session-1",
+            updated_at=datetime.now(timezone.utc),
+            available=False,
+            detail="Session telemetry is not exposed by the backend.",
+        )
+    )
+
+    assert _telemetry_graph_detail(snapshot) == (
+        "Install python3-gi-cairo to render the throughput graph. "
+        "Session telemetry is not exposed by the backend."
+    )
 
 
 def test_normalized_telemetry_history_scales_to_peak_rate() -> None:

@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from dataclasses import dataclass
 import os
+from pathlib import Path
 import types
 
 try:
@@ -22,6 +23,7 @@ DBUSMENU_IFACE = "com.canonical.dbusmenu"
 WATCHER_OBJECT_PATH = "/StatusNotifierWatcher"
 ITEM_OBJECT_PATH = "/StatusNotifierItem"
 MENU_OBJECT_PATH = "/StatusNotifierMenu"
+FALLBACK_TRAY_ICON_NAME = "network-vpn-symbolic"
 WATCHER_CANDIDATES = (
     ("org.kde.StatusNotifierWatcher", "org.kde.StatusNotifierWatcher"),
     ("org.freedesktop.StatusNotifierWatcher", "org.freedesktop.StatusNotifierWatcher"),
@@ -138,6 +140,35 @@ def current_desktop_environment() -> str | None:
     if not values:
         return None
     return " / ".join(values)
+
+
+def _status_notifier_icon_roots() -> tuple[Path, ...]:
+    data_home = Path(os.environ.get("XDG_DATA_HOME", Path.home() / ".local" / "share"))
+    return (
+        data_home / "icons",
+        Path("/usr/local/share/icons"),
+        Path("/usr/share/icons"),
+    )
+
+
+def resolve_tray_icon_name(icon_name: str) -> str:
+    candidates = (
+        ("hicolor/scalable/apps", ".svg"),
+        ("hicolor/scalable/apps", ".png"),
+        ("hicolor/256x256/apps", ".png"),
+        ("hicolor/128x128/apps", ".png"),
+        ("hicolor/64x64/apps", ".png"),
+        ("hicolor/48x48/apps", ".png"),
+        ("hicolor/32x32/apps", ".png"),
+        ("hicolor/24x24/apps", ".png"),
+        ("hicolor/22x22/apps", ".png"),
+        ("hicolor/16x16/apps", ".png"),
+    )
+    for root in _status_notifier_icon_roots():
+        for relative_dir, suffix in candidates:
+            if (root / relative_dir / f"{icon_name}{suffix}").exists():
+                return icon_name
+    return FALLBACK_TRAY_ICON_NAME
 
 
 def detect_tray_support(desktop_environment: str | None = None) -> TraySupport:
@@ -286,6 +317,7 @@ class _StatusNotifierItem(dbus.service.Object if dbus is not None else object):
         self._is_window_visible = is_window_visible
         if dbus is None:
             raise RuntimeError("dbus-python is required for tray support.")
+        self._icon_name = resolve_tray_icon_name(self._icon_name)
         super().__init__(bus_name, ITEM_OBJECT_PATH)
 
     def remove_from_connection(self) -> None:
