@@ -81,7 +81,7 @@ jobs:
           python-version: "3.11"
 
       - name: Install build dependencies
-        run: python3 -m pip install build
+        run: python3 -m pip install build setuptools wheel
 
       - name: Apply release metadata
         run: |
@@ -202,7 +202,7 @@ jobs:
                 rpm-build \
                 pyproject-rpm-macros
               python3 packaging/scripts/release_version.py apply \
-                --python-version "${PYTHON_VERSION}" \
+                --python-version "${RPM_VERSION}" \
                 --deb-version "${DEB_VERSION}" \
                 --rpm-version "${RPM_VERSION}" \
                 --rpm-release "${RPM_RELEASE}" \
