@@ -127,6 +127,19 @@ apt_package_available() {
     apt-cache show "$1" &>/dev/null
 }
 
+openvpn3_repo_list_path_debian() {
+    printf '/etc/apt/sources.list.d/openvpn3.list\n'
+}
+
+remove_stale_openvpn3_repo_debian() {
+    local repo_list
+    repo_list="$(openvpn3_repo_list_path_debian)"
+    if [ -f "$repo_list" ]; then
+        info "Removing stale OpenVPN repository entry because distro packages are being used."
+        as_root rm -f "$repo_list"
+    fi
+}
+
 ensure_ubuntu_universe() {
     if [ "$DISTRO_ID" != "ubuntu" ]; then
         return
@@ -162,12 +175,14 @@ openvpn3_repo_available_debian() {
 
 ensure_openvpn_backend_debian() {
     if apt_package_available openvpn3-client; then
+        remove_stale_openvpn3_repo_debian
         info "Using distro-provided openvpn3-client package."
         return
     fi
 
     ensure_ubuntu_universe
     if apt_package_available openvpn3-client; then
+        remove_stale_openvpn3_repo_debian
         info "Using distro-provided openvpn3-client package from universe."
         return
     fi
