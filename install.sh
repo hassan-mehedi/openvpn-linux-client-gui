@@ -143,7 +143,7 @@ ensure_openvpn3_repo_debian() {
 }
 
 fetch_latest_release_metadata() {
-    local latest_url releases_url
+    local latest_url releases_url releases_json
     latest_url="${GITHUB_API_URL}/releases/latest"
     releases_url="${GITHUB_API_URL}/releases"
 
@@ -158,12 +158,18 @@ fetch_latest_release_metadata() {
     fi
 
     warn "No stable GitHub release is published yet. Falling back to the newest packaged prerelease."
-    RELEASE_JSON="$(
+    releases_json="$(
         curl -fsSL \
             -H "Accept: application/vnd.github+json" \
             -H "User-Agent: openvpn3-client-linux-installer" \
-            "$releases_url" \
-        | python3 - "$PACKAGE_KIND" <<'PY'
+            "$releases_url"
+    )" || {
+        error "Failed to read GitHub releases metadata."
+        exit 1
+    }
+
+    RELEASE_JSON="$(
+        printf '%s' "$releases_json" | python3 -c '
 import json
 import sys
 
@@ -188,12 +194,12 @@ prereleases = [
     if not release.get("draft") and release.get("prerelease") and has_matching_asset(release)
 ]
 
-selected = (stable or prereleases)
+selected = stable or prereleases
 if not selected:
     raise SystemExit(1)
 
 print(json.dumps(selected[0]))
-PY
+' "$PACKAGE_KIND"
     )" || {
         error "Failed to find a GitHub release with a packaged ${PACKAGE_KIND} asset."
         exit 1
@@ -209,7 +215,7 @@ select_release_asset() {
     local kind="$1"
 
     mapfile -t asset_lines < <(
-        printf '%s' "$RELEASE_JSON" | python3 - "$kind" <<'PY'
+        printf '%s' "$RELEASE_JSON" | python3 -c '
 import json
 import sys
 
@@ -234,7 +240,7 @@ for asset in assets:
         break
 else:
     raise SystemExit(1)
-PY
+' "$kind"
     ) || {
         error "No ${kind} package asset was found in the latest stable release."
         exit 1
